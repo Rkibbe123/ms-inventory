@@ -1,9 +1,11 @@
-FROM mcr.microsoft.com/powershell:7.4-ubuntu-24.04
+FROM mcr.microsoft.com/powershell:lts-ubuntu-22.04
 
-# Install system deps and Python for Flask app
+# Install system deps, Python, and Azure CLI
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      python3 python3-pip ca-certificates curl gnupg && \
+      python3 python3-pip ca-certificates curl gnupg lsb-release software-properties-common && \
+    # Install Azure CLI
+    curl -sL https://aka.ms/InstallAzureCLIDeb | bash && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Python deps
@@ -13,6 +15,7 @@ RUN pip3 install --no-cache-dir -r /tmp/requirements-web.txt
 # Prepare app directory
 WORKDIR /app
 COPY app /app/app
+COPY test-auth.ps1 /app/test-auth.ps1
 
 # Preinstall Az modules and ARI at build time for faster startup
 RUN pwsh -NoProfile -Command \

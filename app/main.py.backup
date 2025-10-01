@@ -1,0 +1,1517 @@
+from flask import Flask, render_template_string, request, redirect, url_for, jsonify, session
+import os
+import subprocess
+import shlex
+import threading
+import time
+import uuid
+from datetime import datetime
+
+
+app = Flask(__name__)
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'your-secret-key-change-in-production')
+
+# Store for background jobs
+jobs = {}
+
+
+INDEX_HTML = """
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Azure Resource Inventory (ARI) - Runner</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 40px; }
+      .card { max-width: 720px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 12px; }
+      h1 { margin-top: 0; }
+      label { display: block; margin-top: 12px; font-weight: 600; }
+      input[type=text] { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
+      .row { display: flex; gap: 12px; }
+      .row > div { flex: 1; }
+      button { margin-top: 16px; padding: 10px 16px; background: #2563eb; color: white; border: none; border-radius: 8px; cursor: pointer; }
+      button:disabled { background: #94a3b8; cursor: not-allowed; }
+      .note { color: #475569; font-size: 14px; margin-top: 6px; }
+      .required-note { color: #dc2626; font-size: 14px; margin-top: 6px; font-weight: 600; }
+      .security-note { color: #059669; font-size: 14px; margin-top: 6px; font-weight: 700; }
+      .success { color: #166534; margin-top: 12px; }
+      .error { color: #991b1b; margin-top: 12px; }
+      .warning { color: #d97706; margin-top: 12px; }
+      .info { color: #2563eb; margin-top: 12px; }
+      .link { margin-top: 12px; }
+      .muted { color: #64748b; }
+      .job-status { margin-top: 20px; padding: 15px; border-radius: 8px; background-color: #f8fafc; }
+      .progress { margin-top: 10px; }
+      .spinner { display: inline-block; width: 20px; height: 20px; border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; animation: spin 2s linear infinite; margin-right: 10px; }
+      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+      .output { background: #1e293b; color: #e2e8f0; padding: 15px; border-radius: 8px; font-family: monospace; white-space: pre-wrap; max-height: 300px; overflow-y: auto; margin-top: 10px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Run Azure Resource Inventory</h1>
+      <p class="muted">Azure Resource Inventory (ARI) is a comprehensive PowerShell module that generates detailed Excel reports of any Azure environment you have read access to. It is designed for Cloud Administrators and technical professionals who need an easy and fast way to document their Azure environments.</p>
+      
+      {% if job_id %}
+      <div class="job-status" id="jobStatus">
+        <div class="info">
+          <span class="spinner"></span>
+          Job started... Checking status...
+        </div>
+        <div id="jobOutput" class="output" style="display:none;"></div>
+      </div>
+      
+      <script>
+        const jobId = '{{ job_id }}';
+        let pollInterval;
+        
+        function checkJobStatus() {
+          fetch(`/job-status/${jobId}`)
+            .then(response => response.json())
+            .then(data => {
+              const statusDiv = document.getElementById('jobStatus');
+              const outputDiv = document.getElementById('jobOutput');
+              
+              if (data.status === 'running') {
+                statusDiv.innerHTML = `
+                  <div class="info">
+                    <span class="spinner"></span>
+                    Job is running... ${data.message || ''}
+                  </div>
+                `;
+                if (data.output) {
+                  outputDiv.style.display = 'block';
+                  outputDiv.textContent = data.output;
+                  outputDiv.scrollTop = outputDiv.scrollHeight;
+                }
+              } else if (data.status === 'completed') {
+                clearInterval(pollInterval);
+                statusDiv.innerHTML = `
+                  <div class="success">
+                    ✅ Job completed successfully!
+                  </div>
+                `;
+                if (data.output) {
+                  outputDiv.style.display = 'block';
+                  outputDiv.textContent = data.output;
+                }
+                // Refresh the page after 2 seconds to show results
+                setTimeout(() => location.reload(), 2000);
+              } else if (data.status === 'failed') {
+                clearInterval(pollInterval);
+                statusDiv.innerHTML = `
+                  <div class="error">
+                    ❌ Job failed: ${data.message || 'Unknown error'}
+                  </div>
+                `;
+                if (data.output) {
+                  outputDiv.style.display = 'block';
+                  outputDiv.textContent = data.output;
+                }
+              }
+            })
+            .catch(error => {
+              console.error('Error checking job status:', error);
+            });
+        }
+        
+        // Start polling immediately and then every 5 seconds
+        checkJobStatus();
+        pollInterval = setInterval(checkJobStatus, 5000);
+      </script>
+      
+      {% else %}
+      
+      <form method="post" action="{{ url_for('run_job') }}" id="ariForm">
+        <label for="tenant">Tenant ID (optional)</label>
+        <input id="tenant" name="tenant" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+
+        <div class="row">
+          <div>
+            <label for="subscription">Subscription ID (optional)</label>
+            <input id="subscription" name="subscription" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+          </div>
+          <div>
+            <label for="reportname">Report Name (optional)</label>
+            <input id="reportname" name="reportname" type="text" placeholder="AzureResourceInventory" />
+          </div>
+        </div>
+
+        <label for="include_tags">
+          <input id="include_tags" name="include_tags" type="checkbox" /> Include Tags
+        </label>
+        <label for="skip_advisory">
+          <input id="skip_advisory" name="skip_advisory" type="checkbox" /> Skip Azure Advisor
+        </label>
+        <label for="skip_diagram">
+          <input id="skip_diagram" name="skip_diagram" type="checkbox" /> Skip Diagram
+        </label>
+
+        <div class="security-note">
+          🔒 <strong>Your credentials are never stored</strong> - authentication is handled directly by Microsoft Azure
+        </div>
+        <div class="note">
+          ℹ️ Uses Azure CLI device login for secure authentication. The job will run in the background.
+        </div>
+
+        <button type="button" id="submitBtn" onclick="redirectToCliLogin()" style="background: #dc2626; color: white; padding: 15px 30px; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; margin-top: 20px; width: 100%; box-shadow: 0 4px 6px rgba(220, 38, 38, 0.3);">
+          � Run Invoke-ARI (Device Login Required)
+        </button>
+
+        <div style="margin-top: 25px; padding: 20px; background-color: #f8fafc; border-radius: 8px; border-left: 4px solid #0078d4;">
+          <h3 style="margin-top: 0; color: #0078d4; font-size: 18px;">✨ Key Features</h3>
+          <ul style="margin: 0; padding-left: 20px; color: #374151;">
+            <li style="margin-bottom: 8px;"><strong>Complete Resource Documentation:</strong> Detailed inventory of all Azure resources</li>
+            <li style="margin-bottom: 8px;"><strong>Interactive Excel Reports:</strong> Well-formatted spreadsheets with resources organized by type</li>
+            <li style="margin-bottom: 8px;"><strong>Visual Network Diagrams:</strong> Generate interactive topology maps of your Azure environment</li>
+            <li style="margin-bottom: 8px;"><strong>Security Analysis:</strong> Integration with Azure Security Center (optional)</li>
+            <li style="margin-bottom: 8px;"><strong>Cross-Platform Support:</strong> Works on Windows, Linux, Mac, and Azure Cloud Shell</li>
+            <li style="margin-bottom: 8px;"><strong>Automation-Ready:</strong> Can be deployed via Azure Automation Accounts</li>
+            <li style="margin-bottom: 0;"><strong>Low-Impact:</strong> Read-only operations with no changes to your environment</li>
+          </ul>
+        </div>
+        
+        <script>
+          function redirectToCliLogin() {
+            // Get form values
+            const tenant = document.getElementById('tenant').value.trim();
+            const subscription = document.getElementById('subscription').value.trim();
+            
+            // Build redirect URL with parameters
+            let url = '/cli-device-login';
+            const params = new URLSearchParams();
+            if (tenant) params.append('tenant', tenant);
+            if (subscription) params.append('subscription', subscription);
+            
+            if (params.toString()) {
+              url += '?' + params.toString();
+            }
+            
+            // Redirect to CLI device login
+            window.location.href = url;
+          }
+          
+          // Initialize button state on page load
+          document.addEventListener('DOMContentLoaded', function() {
+            toggleRunButton();
+          });
+        </script>
+      </form>
+
+      {% if message %}
+        <div class="{{ 'success' if success else 'error' }}">{{ message }}</div>
+      {% endif %}
+      
+      {% endif %}
+      
+      <div class="link">
+        <a href="{{ url_for('list_outputs') }}">View generated reports</a>
+      </div>
+    </div>
+  </body>
+  </html>
+"""
+
+
+def get_output_dir() -> str:
+    default_dir = os.environ.get("ARI_OUTPUT_DIR", os.path.expanduser("~/AzureResourceInventory"))
+    os.makedirs(default_dir, exist_ok=True)
+    return default_dir
+
+
+def check_development_mode():
+    """Check if we're running in development mode (no PowerShell/ARI module available)"""
+    try:
+        # Check if we're running in Azure Container Apps or other cloud environments
+        container_env_vars = [
+            'CONTAINER_APP_NAME', 'WEBSITE_SITE_NAME', 'KUBERNETES_SERVICE_HOST',
+            'CONTAINER_APP_REVISION_SUFFIX', 'CONTAINER_APP_ENV_DNS_SUFFIX'
+        ]
+        
+        if any(env in os.environ for env in container_env_vars):
+            return False  # Running in container/cloud, use real mode
+        
+        # Check for Azure-specific environment variables
+        azure_env_vars = ['AZURE_CLIENT_ID', 'MSI_ENDPOINT', 'IDENTITY_ENDPOINT']
+        if any(env in os.environ for env in azure_env_vars):
+            return False  # Running in Azure, use real mode
+            
+        # Check if localhost (development) - explicit check
+        if os.environ.get('FLASK_ENV') == 'development':
+            return True
+            
+        # Check if we can find PowerShell and ARI module (final check)
+        result = subprocess.run(["pwsh", "-Command", "Get-Module -ListAvailable AzureResourceInventory"], 
+                              capture_output=True, timeout=3, stderr=subprocess.DEVNULL)
+        
+        # If AzureResourceInventory module is available, we're in production mode
+        if result.returncode == 0:
+            return False
+        else:
+            return True  # Module not found, development mode
+            
+    except Exception:
+        # If any error occurs, assume development mode for safety
+        return True
+
+
+def run_mock_ari_job(job_id, output_dir, ps_script):
+    """Mock ARI job execution for local development"""
+    import time
+    import random
+    
+    # Simulate the authentication and execution process
+    mock_outputs = [
+        "🔐 FORCING DEVICE LOGIN - COMPLETE MANAGED IDENTITY BYPASS",
+        "=========================================================",
+        "1. Disabling Managed Identity and clearing all auth...",
+        "2. Clearing ALL Azure contexts...",
+        "3. Forcing device login authentication...",
+        "YOU MUST COMPLETE THE DEVICE LOGIN IN YOUR BROWSER!",
+        "",
+        "🔗 DEVICE LOGIN REQUIRED:",
+        "To sign in, use a web browser to open the page https://microsoft.com/devicelogin",
+        f"and enter the code {''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=9))} to authenticate.",
+        "",
+        "⏳ Waiting for device authentication...",
+        "(In real deployment, you would complete this in your browser)",
+        "",
+        "✅ [SIMULATED] Authentication successful!",
+        "SUCCESS: Authenticated as: user@example.com",
+        "Tenant: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        "",
+        "5. Running Azure Resource Inventory...",
+        "[SIMULATED] Scanning subscription resources...",
+        "[SIMULATED] Found 25 resource groups",
+        "[SIMULATED] Found 156 resources",
+        "[SIMULATED] Generating Excel report...",
+        "[SIMULATED] Creating network diagrams...",
+        "",
+        "Azure Resource Inventory completed!",
+        "📊 Report saved to: AzureResourceInventory.xlsx",
+        "🗺️  Network diagram saved to: AzureResourceInventory.drawio"
+    ]
+    
+    jobs[job_id]['message'] = '🔧 Running in development mode (simulated execution)'
+    
+    # Simulate step-by-step output
+    for i, line in enumerate(mock_outputs):
+        time.sleep(0.5)  # Simulate processing time
+        jobs[job_id]['output'] = '\n'.join(mock_outputs[:i+1])
+        
+        # Update status messages for key steps
+        if "device login" in line.lower():
+            jobs[job_id]['message'] = '🔐 Simulating device login authentication...'
+        elif "scanning" in line.lower():
+            jobs[job_id]['message'] = '🔍 Simulating Azure resource scan...'
+        elif "generating" in line.lower():
+            jobs[job_id]['message'] = '📊 Simulating report generation...'
+    
+    # Create mock output files
+    try:
+        mock_excel_path = os.path.join(output_dir, "AzureResourceInventory-DEMO.xlsx")
+        mock_log_path = os.path.join(output_dir, "AzureResourceInventory-DEMO.log")
+        
+        # Create a simple demo file with UTF-8 encoding
+        with open(mock_excel_path.replace('.xlsx', '.txt'), 'w', encoding='utf-8') as f:
+            f.write("DEMO MODE - Azure Resource Inventory Report\n")
+            f.write("This is a simulated report for local development.\n")
+            f.write("In actual deployment, this would be an Excel file with real Azure resources.\n")
+        
+        with open(mock_log_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(mock_outputs))
+            
+    except Exception as e:
+        print(f"Mock file creation error: {e}")
+    
+    # Complete the job
+    jobs[job_id]['status'] = 'completed'
+    jobs[job_id]['message'] = '✅ Development mode simulation completed successfully!'
+
+
+def run_ari_job(job_id, output_dir, ps_script):
+    """Run ARI job in background thread"""
+    try:
+        jobs[job_id]['status'] = 'running'
+        jobs[job_id]['message'] = 'Starting PowerShell process...'
+        jobs[job_id]['debug_script'] = ps_script[:500] + '...' if len(ps_script) > 500 else ps_script
+        
+        # Force device login route ALWAYS uses real PowerShell execution
+        if 'FORCE_REAL_MODE' in ps_script:
+            jobs[job_id]['message'] = '🔐 Using REAL PowerShell execution for device login'
+            # Skip development mode check - always use real execution
+        else:
+            # Check if running in development mode for regular routes
+            is_dev_mode = check_development_mode()
+            
+            if is_dev_mode:
+                # Mock execution for local development
+                run_mock_ari_job(job_id, output_dir, ps_script)
+                return
+        
+        pwsh_cmd = ["pwsh", "-NoProfile", "-Command", ps_script]
+        
+        # Start the process
+        process = subprocess.Popen(
+            pwsh_cmd, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.STDOUT, 
+            text=True, 
+            bufsize=1, 
+            universal_newlines=True
+        )
+        
+        jobs[job_id]['process'] = process
+        output_lines = []
+        
+        # Read output in real-time
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                # Enhance PowerShell output formatting
+                enhanced_output = enhance_device_code_output(output.strip())
+                output_lines.append(enhanced_output)
+                jobs[job_id]['output'] = '\n'.join(output_lines[-100:])  # Keep last 100 lines
+                
+                # Check for various output patterns
+                output_lower = output.lower()
+                if any(phrase in output_lower for phrase in [
+                    "to sign in, use a web browser", 
+                    "https://microsoft.com/devicelogin",
+                    "device code",
+                    "open a browser",
+                    "authentication needed",
+                    "please authenticate",
+                    "enter the code",
+                    "https://aka.ms/devicelogin",
+                    "code:",
+                    "browser to open the page"
+                ]):
+                    jobs[job_id]['message'] = '🔐 DEVICE LOGIN REQUIRED - Check the terminal output below for code and URL'
+                elif "=== device login required ===" in output_lower:
+                    jobs[job_id]['message'] = '🔐 Preparing device login authentication...'
+                elif "error" in output_lower and "authentication" in output_lower:
+                    jobs[job_id]['message'] = '❌ Authentication error - Check output for details'
+                elif "warning" in output_lower:
+                    jobs[job_id]['message'] = '⚠️ Processing... (warnings detected)'
+                elif "invoke-ari completed" in output_lower or "completed" in output_lower:
+                    jobs[job_id]['message'] = '✅ ARI execution completed'
+                elif "starting" in output_lower:
+                    jobs[job_id]['message'] = '🚀 Starting Azure Resource Inventory...'
+                else:
+                    jobs[job_id]['message'] = '⚡ Processing Azure resources...'
+        
+        # Wait for process to complete
+        return_code = process.poll()
+        
+        if return_code == 0:
+            jobs[job_id]['status'] = 'completed'
+            jobs[job_id]['message'] = 'Job completed successfully'
+        else:
+            jobs[job_id]['status'] = 'failed'
+            jobs[job_id]['message'] = f'Job failed with exit code {return_code}'
+            
+    except Exception as e:
+        jobs[job_id]['status'] = 'failed'
+        jobs[job_id]['message'] = f'Error: {str(e)}'
+        jobs[job_id]['output'] = jobs[job_id].get('output', '') + f'\nException: {str(e)}'
+
+
+def generate_force_device_login_script(output_dir, tenant, subscription, reportname, include_tags, skip_advisory, skip_diagram):
+    """Generate PowerShell script with NUCLEAR managed identity bypass for forced device login"""
+    
+    ps_script_parts = [
+        "# NUCLEAR OPTION: Kill any existing PowerShell authentication",
+        "$ErrorActionPreference='Continue';",
+        f"$out='{output_dir}';",
+        "New-Item -ItemType Directory -Force -Path $out | Out-Null;",
+        "",
+        "Write-Host '� NUCLEAR DEVICE LOGIN BYPASS - KILLING ALL MANAGED IDENTITY' -ForegroundColor Red;",
+        "Write-Host '=================================================================' -ForegroundColor Red;",
+        "# FORCE_REAL_MODE: This marker ensures real PowerShell execution, not simulation",
+        "Write-Host 'FORCE_REAL_MODE: Nuclear bypass mode activated' -ForegroundColor Magenta;",
+        "",
+        "# STEP 1: Nuclear environment variable clearing",
+        "Write-Host '1. NUCLEAR: Clearing ALL Azure environment variables...' -ForegroundColor Red;",
+        "Get-ChildItem env: | Where-Object { $_.Name -match 'AZURE|MSI|ARM|IDENTITY|IMDS|CLIENT|SECRET|TENANT|SUBSCRIPTION' } | Remove-Item -Force -ErrorAction SilentlyContinue;",
+        "$env:AZURE_CLIENT_ID = $null;",
+        "$env:MSI_ENDPOINT = $null;",
+        "$env:IDENTITY_ENDPOINT = $null;",
+        "$env:IMDS_ENDPOINT = $null;",
+        "$env:AZURE_CLIENT_SECRET = $null;",
+        "$env:AZURE_TENANT_ID = $null;",
+        "$env:AZURE_SUBSCRIPTION_ID = $null;",
+        "$env:ARM_CLIENT_ID = $null;",
+        "$env:ARM_CLIENT_SECRET = $null;",
+        "$env:ARM_TENANT_ID = $null;",
+        "$env:ARM_SUBSCRIPTION_ID = $null;",
+        "$env:AZURE_USE_MSI = $null;",
+        "$env:MSI_ENDPOINT = $null;",
+        "$env:IDENTITY_ENDPOINT = $null;",
+        "$env:IMDS_ENDPOINT = $null;",
+        "$env:CONTAINER_APP_NAME = $null;",
+        "$env:CONTAINER_APP_REVISION = $null;",
+        "",
+        "# STEP 2: Remove and reimport modules to clear cached auth",
+        "Write-Host '2. NUCLEAR: Removing and reimporting Azure modules...' -ForegroundColor Red;",
+        "try { Remove-Module Az.* -Force -ErrorAction SilentlyContinue } catch {};",
+        "try { Remove-Module AzureResourceInventory -Force -ErrorAction SilentlyContinue } catch {};",
+        "Start-Sleep -Seconds 2;",
+        "Import-Module Az.Accounts -Force -DisableNameChecking;",
+        "Import-Module AzureResourceInventory -Force -DisableNameChecking;",
+        "",
+        "# STEP 3: Clear all authentication contexts and profiles",
+        "Write-Host '3. NUCLEAR: Clearing ALL authentication contexts...' -ForegroundColor Red;",
+        "try { Clear-AzContext -Force -ErrorAction SilentlyContinue } catch {};",
+        "try { Disconnect-AzAccount -ErrorAction SilentlyContinue } catch {};",
+        "try { [Microsoft.Azure.Commands.Common.Authentication.Abstractions.AzureRmProfileProvider]::Instance.Profile.Clear() } catch {};",
+        "try { [Microsoft.Azure.Commands.Common.Authentication.Abstractions.AzureRmProfileProvider]::Instance.Profile.DefaultContext = $null } catch {};",
+        "",
+        "# STEP 4: Block managed identity at the HTTP level",
+        "Write-Host '4. NUCLEAR: Blocking managed identity HTTP endpoints...' -ForegroundColor Red;",
+        "$originalHost = $env:HOST;",
+        "$env:HOST = '127.0.0.1';", 
+        "# Create fake hosts entries to block IMDS",
+        "try {",
+        "    $hostsPath = '/etc/hosts';",
+        "    if (Test-Path $hostsPath) {",
+        "        Add-Content $hostsPath '127.0.0.1 169.254.169.254' -ErrorAction SilentlyContinue;",
+        "    }",
+        "} catch {};",
+        "",
+        "# STEP 5: Force authentication method to be explicitly device-only",
+        "Write-Host '5. NUCLEAR: Forcing DEVICE-ONLY authentication...' -ForegroundColor Red;",
+        "[Microsoft.Azure.Commands.Common.Authentication.AzureSession]::Instance.AuthenticationFactory.Clear();",
+        "Write-Host 'YOU MUST COMPLETE THE DEVICE LOGIN - NO SHORTCUTS!' -ForegroundColor Red;",
+    ]
+    
+    # Add explicit device login with multiple fallback methods
+    ps_script_parts.extend([
+        "",
+        "# STEP 6: Multiple attempts at device login",
+        "Write-Host '6. ATTEMPTING DEVICE LOGIN WITH MULTIPLE METHODS...' -ForegroundColor Red;",
+        "Write-Host '============================================================' -ForegroundColor Red;",
+        "Write-Host 'If one method fails, trying backup methods...' -ForegroundColor Yellow;",
+        "",
+        "# Method 1: Standard device login",
+        "Write-Host 'METHOD 1: Standard device login...' -ForegroundColor Cyan;",
+        "try {",
+    ])
+    
+    if tenant:
+        ps_script_parts.extend([
+            f"    Connect-AzAccount -DeviceCode -Tenant '{tenant}' -UseDeviceAuthentication -Force;",
+            "    Write-Host 'SUCCESS: Method 1 worked!' -ForegroundColor Green;",
+        ])
+    else:
+        ps_script_parts.extend([
+            "    Connect-AzAccount -DeviceCode -UseDeviceAuthentication -Force;",
+            "    Write-Host 'SUCCESS: Method 1 worked!' -ForegroundColor Green;",
+        ])
+        
+    ps_script_parts.extend([
+        "} catch {",
+        "    Write-Host 'Method 1 failed, trying Method 2...' -ForegroundColor Yellow;",
+        "    # Method 2: Force interactive with device code",
+        "    try {",
+    ])
+    
+    if tenant:
+        ps_script_parts.extend([
+            f"        Connect-AzAccount -DeviceCode -Tenant '{tenant}' -Force -Environment AzureCloud;",
+        ])
+    else:
+        ps_script_parts.extend([
+            "        Connect-AzAccount -DeviceCode -Force -Environment AzureCloud;",
+        ])
+        
+    ps_script_parts.extend([
+        "        Write-Host 'SUCCESS: Method 2 worked!' -ForegroundColor Green;",
+        "    } catch {",
+        "        Write-Host 'Method 2 failed, trying Method 3...' -ForegroundColor Yellow;",
+        "        # Method 3: Pure device code without extras",
+        "        try {",
+        "            $deviceLogin = [Microsoft.Azure.Commands.Profile.ConnectAzureRmAccountCommand]::new();",
+        "            $deviceLogin.UseDeviceAuthentication = $true;",
+    ])
+    
+    if tenant:
+        ps_script_parts.extend([
+            f"            $deviceLogin.TenantId = '{tenant}';",
+        ])
+        
+    ps_script_parts.extend([
+        "            $deviceLogin.InvokeBeginProcessing();",
+        "            Write-Host 'SUCCESS: Method 3 worked!' -ForegroundColor Green;",
+        "        } catch {",
+        "            Write-Host 'All methods failed - this is a Container Apps managed identity issue' -ForegroundColor Red;",
+        "            throw 'Cannot bypass managed identity in Container Apps environment';",
+        "        }",
+        "    }",
+        "}",
+    ])
+    
+    ps_script_parts.extend([
+        "",
+        "# STEP 4: Verify authentication worked",
+        "Write-Host '4. Verifying authentication...' -ForegroundColor Yellow;",
+        "$context = Get-AzContext;",
+        "if ($context) {",
+        "    Write-Host 'SUCCESS: Authenticated as:' $context.Account.Id -ForegroundColor Green;",
+        "    Write-Host 'Tenant:' $context.Tenant.Id -ForegroundColor Green;",
+        "} else {",
+        "    Write-Host 'FAILED: No authentication context found!' -ForegroundColor Red;",
+        "    exit 1;",
+        "}",
+        "",
+    ])
+    
+    # Add subscription selection if specified
+    if subscription:
+        ps_script_parts.extend([
+            f"# Set subscription",
+            f"Write-Host 'Setting subscription to: {subscription}' -ForegroundColor Yellow;",
+            f"Set-AzContext -SubscriptionId '{subscription}';",
+            "",
+        ])
+    
+    # Build ARI command
+    ari_params = []
+    if subscription:
+        ari_params.append(f"-SubscriptionID '{subscription}'")
+    if tenant:
+        ari_params.append(f"-TenantID '{tenant}'")
+    if reportname != "AzureResourceInventory":
+        ari_params.append(f"-ReportName '{reportname}'")
+    if include_tags:
+        ari_params.append("-IncludeTags")
+    if skip_advisory:
+        ari_params.append("-SkipAdvisory")
+    if skip_diagram:
+        ari_params.append("-SkipDiagram")
+    
+    ari_command = f"Invoke-AzureResourceInventory -OutputPath '$out'"
+    if ari_params:
+        ari_command += " " + " ".join(ari_params)
+    
+    ps_script_parts.extend([
+        "# STEP 5: Run Azure Resource Inventory",
+        "Write-Host '5. Running Azure Resource Inventory...' -ForegroundColor Yellow;",
+        ari_command + ";",
+        "",
+        "Write-Host 'Azure Resource Inventory completed!' -ForegroundColor Green;",
+    ])
+    
+    return "".join(ps_script_parts)
+
+
+@app.route("/", methods=["GET"])
+def index():
+    return render_template_string(INDEX_HTML, message=None, job_id=None)
+
+
+@app.route("/run", methods=["POST"])
+def run_job():
+    output_dir = get_output_dir()
+
+    tenant = (request.form.get("tenant") or "").strip()
+    subscription = (request.form.get("subscription") or "").strip()
+    reportname = (request.form.get("reportname") or "AzureResourceInventory").strip()
+    include_tags = request.form.get("include_tags") == "on"
+    skip_advisory = request.form.get("skip_advisory") == "on"
+    skip_diagram = request.form.get("skip_diagram") == "on"
+    device_login = request.form.get("device_login") == "on"
+
+    # Build PowerShell script with explicit device login handling
+    if device_login:
+        ps_script_parts = [
+            "Import-Module Az.Accounts -Force;",
+            "Import-Module AzureResourceInventory -Force;",
+            f"$ErrorActionPreference='Continue';",
+            f"$out='{output_dir}';",
+            "New-Item -ItemType Directory -Force -Path $out | Out-Null;",
+            "Write-Host '🔐 FORCING DEVICE LOGIN - BYPASSING MANAGED IDENTITY' -ForegroundColor Cyan;",
+            "",
+            "# STEP 1: Completely disable managed identity",
+            "Write-Host '1. Disabling Managed Identity and clearing all auth...' -ForegroundColor Yellow;",
+            "[Environment]::SetEnvironmentVariable('AZURE_CLIENT_ID', $null);",
+            "[Environment]::SetEnvironmentVariable('MSI_ENDPOINT', $null);",
+            "[Environment]::SetEnvironmentVariable('IDENTITY_ENDPOINT', $null);", 
+            "[Environment]::SetEnvironmentVariable('IMDS_ENDPOINT', $null);",
+            "[Environment]::SetEnvironmentVariable('AZURE_CLIENT_SECRET', $null);",
+            "[Environment]::SetEnvironmentVariable('AZURE_TENANT_ID', $null);",
+            "",
+            "# STEP 2: Clear all existing Azure contexts",
+            "Write-Host '2. Clearing ALL Azure contexts...' -ForegroundColor Yellow;",
+            "try {",
+            "    Get-AzContext -ListAvailable | ForEach-Object { Remove-AzContext -Name $_.Name -Force -ErrorAction SilentlyContinue };",
+            "    Clear-AzContext -Force -ErrorAction SilentlyContinue;",
+            "    Disconnect-AzAccount -ErrorAction SilentlyContinue;",
+            "    Write-Host '   ✓ All contexts cleared' -ForegroundColor Green;",
+            "} catch {",
+            "    Write-Host '   Warning: $($_.Exception.Message)' -ForegroundColor Orange;",
+            "}",
+            "",
+            "# STEP 3: Force device authentication",
+            "Write-Host '3. Initiating DEVICE LOGIN (this will show browser instructions)...' -ForegroundColor Yellow;",
+            "Write-Host '   👀 LOOK FOR THESE INSTRUCTIONS BELOW:' -ForegroundColor Cyan;",
+            "Write-Host '   - To sign in, use a web browser to open...' -ForegroundColor Cyan;",
+            "Write-Host '   - And enter the code: XXXXXXX' -ForegroundColor Cyan;",
+            "Write-Host '   📋 Copy the code and URL that appears below!' -ForegroundColor Cyan;",
+            "Write-Host '' -ForegroundColor White;",
+            "",
+            "try {",
+            "    # Force device login - bypass all other auth methods",
+            f"    $tenant = '{tenant}' -replace '^\\s*$', '';",
+            "    if ($tenant) {",
+            "        Write-Host '   Connecting to tenant: $tenant' -ForegroundColor Gray;",
+            "        Connect-AzAccount -DeviceCode -Tenant $tenant -Force -ErrorAction Stop;",
+            "    } else {",
+            "        Write-Host '   Connecting to default tenant...' -ForegroundColor Gray;",
+            "        Connect-AzAccount -DeviceCode -Force -ErrorAction Stop;",
+            "    }",
+            "",
+            "    $context = Get-AzContext;",
+            "    Write-Host '   ✅ Authentication successful!' -ForegroundColor Green;",
+            "    Write-Host '   Account: $($context.Account.Id)' -ForegroundColor Green;",
+            "    Write-Host '   Tenant: $($context.Tenant.Id)' -ForegroundColor Green;",
+            "    Write-Host '' -ForegroundColor White;",
+            "",
+            "    # STEP 4: Run ARI with authenticated context", 
+            "    Write-Host '4. Running Azure Resource Inventory...' -ForegroundColor Yellow;",
+            "    Invoke-ARI",
+            f"     -ReportDir '{output_dir}'",
+            f"     -ReportName '{reportname}'",
+        ]
+    else:
+        ps_script_parts = [
+            "Import-Module AzureResourceInventory -Force;",
+            f"$ErrorActionPreference='Continue';",
+            f"$out='{output_dir}';",
+            "New-Item -ItemType Directory -Force -Path $out | Out-Null;",
+            "Write-Host 'Starting Invoke-ARI...';",
+            "Invoke-ARI",
+            f" -ReportDir \"{output_dir}\"",
+            f" -ReportName \"{reportname}\"",
+        ]
+
+    # Add parameters based on device login or not
+    if device_login:
+        # Add ARI parameters for device login version
+        if subscription:
+            ps_script_parts.append(f"     -SubscriptionID '{subscription}'")
+        if include_tags:
+            ps_script_parts.append("     -IncludeTags")
+        if skip_advisory:
+            ps_script_parts.append("     -SkipAdvisory")
+        if skip_diagram:
+            ps_script_parts.append("     -SkipDiagram")
+        
+        ps_script_parts.extend([
+            "",
+            "    Write-Host '✅ Azure Resource Inventory completed successfully!' -ForegroundColor Green;",
+            "",
+            "} catch {",
+            "    Write-Host '❌ Error during execution:' -ForegroundColor Red;",
+            "    Write-Host $_.Exception.Message -ForegroundColor Red;",
+            "    if ($_.Exception.Message -like '*authentication*' -or $_.Exception.Message -like '*login*') {",
+            "        Write-Host '💡 This appears to be an authentication issue.' -ForegroundColor Yellow;",
+            "        Write-Host '   Please ensure you completed the device login process.' -ForegroundColor Yellow;",
+            "    }",
+            "    throw;",
+            "}",
+            "",
+            "Write-Host '🎉 Process completed!' -ForegroundColor Cyan;"
+        ])
+    else:
+        if tenant:
+            ps_script_parts.append(f" -TenantID \"{shlex.quote(tenant)}\"")
+        if subscription:
+            ps_script_parts.append(f" -SubscriptionID \"{shlex.quote(subscription)}\"")
+        if include_tags:
+            ps_script_parts.append(" -IncludeTags")
+        if skip_advisory:
+            ps_script_parts.append(" -SkipAdvisory")
+        if skip_diagram:
+            ps_script_parts.append(" -SkipDiagram")
+        
+        ps_script_parts.append("; Write-Host 'Invoke-ARI completed';")
+    
+    ps_script = "".join(ps_script_parts)
+
+    # Create job ID and start background job
+    job_id = str(uuid.uuid4())
+    jobs[job_id] = {
+        'status': 'starting',
+        'message': 'Initializing job...',
+        'output': '',
+        'created_at': datetime.now(),
+        'process': None
+    }
+
+    # Start background thread
+    thread = threading.Thread(target=run_ari_job, args=(job_id, output_dir, ps_script))
+    thread.daemon = True
+    thread.start()
+
+    # Return status page
+    return render_template_string(INDEX_HTML, message=None, job_id=job_id)
+
+
+@app.route("/job-status/<job_id>", methods=["GET"])
+def job_status(job_id):
+    """Get job status via AJAX"""
+    if job_id not in jobs:
+        return jsonify({'status': 'not_found', 'message': 'Job not found'}), 404
+    
+    job = jobs[job_id]
+    return jsonify({
+        'status': job['status'],
+        'message': job.get('message', ''),
+        'output': job.get('output', ''),
+        'created_at': job['created_at'].isoformat()
+    })
+
+
+@app.route("/debug-env", methods=["GET"])
+def debug_env():
+    """Debug environment variables and mode detection"""
+    env_vars = {k: v for k, v in os.environ.items() if any(term in k.upper() for term in ['CONTAINER', 'AZURE', 'MSI', 'IDENTITY', 'FLASK'])}
+    is_dev_mode = check_development_mode()
+    
+    debug_html = f'''<!doctype html>
+<html>
+  <head><title>Debug Environment</title></head>
+  <body style="font-family: monospace; margin: 20px;">
+    <h2>Environment Debug</h2>
+    <p><strong>Development Mode:</strong> {is_dev_mode}</p>
+    <h3>Relevant Environment Variables:</h3>
+    <pre>{chr(10).join(f"{k}={v}" for k, v in sorted(env_vars.items()))}</pre>
+    <p><a href="/">← Back to Main Page</a></p>
+  </body>
+</html>'''
+    return debug_html
+
+
+@app.route("/test-auth", methods=["GET", "POST"])
+def test_auth():
+    """Test Azure authentication to diagnose login issues"""
+    if request.method == "GET":
+        return """
+        <!doctype html>
+        <html>
+        <head><title>Azure Auth Test</title></head>
+        <body style='font-family: sans-serif; margin: 40px;'>
+            <h1>Azure Authentication Diagnostic</h1>
+            <p>This will test the current authentication state in the container.</p>
+            <form method="post">
+                <button type="submit">Run Authentication Test</button>
+            </form>
+            <p><a href="/">Back to Main App</a></p>
+        </body>
+        </html>
+        """
+    
+    # Run the diagnostic script
+    try:
+        script_path = "/app/test-auth.ps1" if os.path.exists("/app/test-auth.ps1") else "test-auth.ps1"
+        result = subprocess.run(
+            ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script_path],
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+        
+        output = result.stdout + "\n\nSTDERR:\n" + result.stderr
+        return f"""
+        <!doctype html>
+        <html>
+        <head><title>Auth Test Results</title></head>
+        <body style='font-family: sans-serif; margin: 40px;'>
+            <h1>Authentication Test Results</h1>
+            <pre style='background: #1e293b; color: #e2e8f0; padding: 15px; border-radius: 8px; overflow-x: auto;'>{output}</pre>
+            <p><a href="/test-auth">Run Again</a> | <a href="/">Back to Main App</a></p>
+        </body>
+        </html>
+        """
+    except Exception as e:
+        return f"""
+        <!doctype html>
+        <html>
+        <head><title>Auth Test Error</title></head>
+        <body style='font-family: sans-serif; margin: 40px;'>
+            <h1>Authentication Test Error</h1>
+            <p>Error running diagnostic: {str(e)}</p>
+            <p><a href="/test-auth">Try Again</a> | <a href="/">Back to Main App</a></p>
+        </body>
+        </html>
+        """
+
+
+@app.route("/force-device-login", methods=["GET", "POST"])
+def force_device_login():
+    """Force device login with complete managed identity bypass"""
+    
+    try:
+        if request.method == "GET":
+            # Show the force device login form
+            html = '''<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Force Device Login - Azure Resource Inventory</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 40px; }
+      .card { max-width: 720px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 12px; }
+      h1 { margin-top: 0; color: #d97706; }
+      label { display: block; margin-top: 12px; font-weight: 600; }
+      input[type=text] { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
+      input[type=checkbox] { margin-right: 8px; }
+      .row { display: flex; gap: 12px; }
+      .row > div { flex: 1; }
+      button { margin-top: 16px; padding: 10px 16px; background: #d97706; color: white; border: none; border-radius: 8px; cursor: pointer; }
+      button:disabled { background: #94a3b8; cursor: not-allowed; }
+      .note { color: #475569; font-size: 14px; margin-top: 6px; }
+      .warning { background: #fef3c7; border: 1px solid #f59e0b; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+      .link { margin-top: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>🔒 Force Device Login</h1>
+      <div class="warning">
+        <strong>⚠️ Complete Managed Identity Bypass</strong><br>
+        This mode completely disables managed identity and forces interactive browser authentication.
+        You will definitely see device login instructions and must authenticate in your browser.
+      </div>
+      
+      <form method="post" action="/force-device-login">
+        <label for="tenant">Tenant ID (optional but recommended)</label>
+        <input id="tenant" name="tenant" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+        <div class="note">Providing tenant ID ensures you authenticate to the correct Azure AD tenant.</div>
+
+        <div class="row">
+          <div>
+            <label for="subscription">Subscription ID (optional)</label>
+            <input id="subscription" name="subscription" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+          </div>
+          <div>
+            <label for="reportname">Report Name (optional)</label>
+            <input id="reportname" name="reportname" type="text" placeholder="AzureResourceInventory" />
+          </div>
+        </div>
+
+        <label for="include_tags">
+          <input id="include_tags" name="include_tags" type="checkbox" /> Include Tags
+        </label>
+        <label for="skip_advisory">
+          <input id="skip_advisory" name="skip_advisory" type="checkbox" /> Skip Azure Advisor
+        </label>
+        <label for="skip_diagram">
+          <input id="skip_diagram" name="skip_diagram" type="checkbox" /> Skip Diagram
+        </label>
+
+        <button type="submit">🔐 Force Device Login & Run ARI</button>
+        
+        <div class="note" style="margin-top: 10px; font-style: italic;">
+          This will show device login instructions that you must complete in your browser.
+        </div>
+      </form>
+      
+      <div class="link"><a href="/">← Back to Regular Mode</a></div>
+    </div>
+  </body>
+</html>'''
+            return html
+            
+        # Handle POST request
+        output_dir = get_output_dir()
+        
+        # Get form data
+        tenant = request.form.get("tenant", "").strip()
+        subscription = request.form.get("subscription", "").strip()
+        reportname = request.form.get("reportname", "").strip() or "AzureResourceInventory"
+        include_tags = "include_tags" in request.form
+        skip_advisory = "skip_advisory" in request.form
+        skip_diagram = "skip_diagram" in request.form
+        
+        # Generate force device login PowerShell script
+        ps_script = generate_force_device_login_script(
+            output_dir, tenant, subscription, reportname, 
+            include_tags, skip_advisory, skip_diagram
+        )
+        
+        # Create and start job
+        job_id = str(uuid.uuid4())
+        jobs[job_id] = {
+            "status": "starting",
+            "message": "Initializing forced device login...",
+            "output": "",
+            "script": ps_script,
+            "created_at": datetime.now()
+        }
+        
+        # Start background job
+        thread = threading.Thread(target=run_ari_job, args=(job_id, output_dir, ps_script))
+        thread.daemon = True
+        thread.start()
+        
+        # Show job status page with polling
+        html = f'''<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Force Device Login Job - Azure Resource Inventory</title>
+    <style>
+      body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 40px; }}
+      .card {{ max-width: 720px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 12px; }}
+      h1 {{ margin-top: 0; color: #d97706; }}
+      .job-status {{ margin-top: 20px; padding: 15px; border-radius: 8px; background-color: #f8fafc; }}
+      .spinner {{ display: inline-block; width: 20px; height: 20px; border: 3px solid #f3f3f3; border-top: 3px solid #d97706; border-radius: 50%; animation: spin 2s linear infinite; margin-right: 10px; }}
+      @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
+      .output {{ background: #1e293b; color: #e2e8f0; padding: 15px; border-radius: 8px; font-family: monospace; white-space: pre-wrap; max-height: 400px; overflow-y: auto; margin-top: 10px; }}
+      .link {{ margin-top: 12px; }}
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>🔒 Force Device Login Job</h1>
+      
+      <div class="job-status" id="jobStatus">
+        <div style="color: #d97706;">
+          <span class="spinner"></span>
+          Forced device login job started... Watch for authentication instructions below!
+        </div>
+        <div id="jobOutput" class="output" style="display:none;"></div>
+      </div>
+      
+      <script>
+        const jobId = '{job_id}';
+        let pollInterval;
+        
+        function checkJobStatus() {{
+          fetch(`/job-status/${{jobId}}`)
+            .then(response => response.json())
+            .then(data => {{
+              const statusDiv = document.getElementById('jobStatus');
+              const outputDiv = document.getElementById('jobOutput');
+              
+              if (data.status === 'running') {{
+                statusDiv.innerHTML = `
+                  <div style="color: #d97706;">
+                    <span class="spinner"></span>
+                    ${{data.message || 'Running forced device login...'}}
+                  </div>
+                `;
+                if (data.output) {{
+                  outputDiv.style.display = 'block';
+                  // Render HTML content for enhanced formatting
+                  outputDiv.innerHTML = data.output;
+                  outputDiv.scrollTop = outputDiv.scrollHeight;
+                }}
+              }} else if (data.status === 'completed') {{
+                clearInterval(pollInterval);
+                statusDiv.innerHTML = `
+                  <div style="color: #166534;">
+                    ✅ Forced device login job completed!
+                  </div>
+                `;
+                if (data.output) {{
+                  outputDiv.style.display = 'block';
+                  outputDiv.textContent = data.output;
+                }}
+                setTimeout(() => window.location.href = '/outputs', 3000);
+              }} else if (data.status === 'failed') {{
+                clearInterval(pollInterval);
+                statusDiv.innerHTML = `
+                  <div style="color: #991b1b;">
+                    ❌ Job failed: ${{data.message || 'Unknown error'}}
+                  </div>
+                `;
+                if (data.output) {{
+                  outputDiv.style.display = 'block';
+                  outputDiv.textContent = data.output;
+                }}
+              }}
+            }})
+            .catch(error => {{
+              console.error('Error checking job status:', error);
+            }});
+        }}
+        
+        checkJobStatus();
+        pollInterval = setInterval(checkJobStatus, 3000);
+      </script>
+      
+      <div class="link"><a href="/">← Back to Main Page</a></div>
+    </div>
+  </body>
+</html>'''
+        
+        return html
+    
+    except Exception as e:
+        # If there's any error, return a simple error page
+        error_html = f'''<!doctype html>
+<html>
+  <head>
+    <title>Force Device Login - Error</title>
+    <style>
+      body {{ font-family: system-ui, -apple-system, sans-serif; margin: 40px; }}
+      .error {{ color: #dc2626; background: #fef2f2; padding: 20px; border-radius: 8px; }}
+    </style>
+  </head>
+  <body>
+    <h1>Force Device Login - Error</h1>
+    <div class="error">
+      <strong>Error:</strong> {str(e)}<br>
+      <a href="/">← Back to Main Page</a>
+    </div>
+  </body>
+</html>'''
+        return error_html, 500
+
+
+@app.route("/outputs", methods=["GET"])
+def list_outputs():
+    output_dir = get_output_dir()
+    files = []
+    try:
+        for name in sorted(os.listdir(output_dir)):
+            if name.lower().endswith((".xlsx", ".xml", ".log")):
+                files.append(name)
+    except FileNotFoundError:
+        pass
+
+    items = "".join(f"<li><a href='/download/{name}'>{name}</a></li>" for name in files) or "<li>No files yet</li>"
+    html = f"""
+<!doctype html>
+<html>
+  <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Outputs</title></head>
+  <body style='font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 40px;'>
+    <h1>Generated outputs</h1>
+    <ul>{items}</ul>
+    <a href='/'>Back</a>
+  </body>
+</html>
+"""
+    return html
+
+
+@app.route("/cli-device-login", methods=["GET", "POST"])
+def cli_device_login():
+    """Azure CLI device login for Azure Resource Inventory"""
+    if request.method == "GET":
+        tenant_value = request.args.get("tenant", "")
+        subscription_value = request.args.get("subscription", "")
+        
+        html_content = """<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Azure CLI Device Login - Azure Resource Inventory</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 40px; }
+      .card { max-width: 720px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 12px; }
+      h1 { margin-top: 0; color: #0078d4; }
+      .warning { padding: 15px; background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; margin: 20px 0; }
+      .form-group { margin-bottom: 20px; }
+      label { display: block; margin-bottom: 8px; font-weight: 500; }
+      input, select { width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; }
+      button { background-color: #0078d4; color: white; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; }
+      button:hover { background-color: #106ebe; }
+      .link { margin-top: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>� Azure Resource Inventory - Device Login</h1>
+      
+      <div class="warning">
+        <strong>Secure Authentication:</strong> Uses Azure CLI device login for secure authentication.
+        <br><strong>Your credentials are never stored</strong> - authentication is handled directly by Microsoft Azure.
+      </div>
+      
+      <form method="POST">
+        <div class="form-group">
+          <label for="tenant">Tenant ID (optional):</label>
+          <input type="text" name="tenant" id="tenant" value="{tenant_escaped}" placeholder="Leave empty for default tenant">
+        </div>
+        
+        <div class="form-group">
+          <label for="subscription">Subscription ID (optional):</label>
+          <input type="text" name="subscription" id="subscription" value="{subscription_escaped}" placeholder="Leave empty for default subscription">
+        </div>
+        
+        <button type="submit">Start Azure CLI Device Login</button>
+        
+        <div class="link">
+          <a href="/">← Back to Main Page</a>
+        </div>
+      </form>
+    </div>
+  </body>
+</html>'''
+    
+    # POST request - start Azure CLI device login process
+    tenant = request.form.get("tenant", "").strip() or None
+    subscription = request.form.get("subscription", "").strip() or None
+    
+    job_id = str(uuid.uuid4())
+    output_dir = get_output_dir()
+    
+    # Generate Azure CLI script
+    cli_script = generate_cli_device_login_script(output_dir, tenant, subscription)
+    
+    jobs[job_id] = {
+        'status': 'running',
+        'output': '',
+        'created_at': datetime.now(),
+        'process': None
+    }
+    
+    # Start CLI job
+    thread = threading.Thread(target=run_cli_job, args=(job_id, cli_script))
+    thread.daemon = True
+    thread.start()
+    
+    return f'''<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Azure CLI Device Login - Running</title>
+    <style>
+      body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 40px; }}
+      .card {{ max-width: 720px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 12px; }}
+      h1 {{ margin-top: 0; color: #0078d4; }}
+      .spinner {{ display: inline-block; width: 20px; height: 20px; border: 3px solid #f3f3f3; border-top: 3px solid #0078d4; border-radius: 50%; animation: spin 2s linear infinite; margin-right: 10px; }}
+      @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
+      .output {{ background: #1e293b; color: #e2e8f0; padding: 15px; border-radius: 8px; font-family: monospace; white-space: pre-wrap; max-height: 400px; overflow-y: auto; margin-top: 10px; }}
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>🔧 Azure CLI Device Login</h1>
+      <div style="color: #0078d4;">
+        <span class="spinner"></span>
+        Running Azure CLI device login... Watch for authentication instructions!
+      </div>
+      <div id="output" class="output"></div>
+      
+      <script>
+        const jobId = '{job_id}';
+        function checkOutput() {{
+          fetch(`/job-status/${{jobId}}`)
+            .then(response => response.json())
+            .then(data => {{
+              // Render HTML content for enhanced formatting
+              const outputElement = document.getElementById('output');
+              outputElement.innerHTML = data.output || '';
+              // Scroll to bottom to show latest output
+              outputElement.scrollTop = outputElement.scrollHeight;
+              
+              if (data.status !== 'running') {{
+                clearInterval(interval);
+                if (data.status === 'completed') {{
+                  window.location.href = '/outputs';
+                }}
+              }}
+            }});
+        }}
+        const interval = setInterval(checkOutput, 2000);
+        checkOutput();
+      </script>
+    </div>
+  </body>
+</html>'''
+
+
+def generate_cli_device_login_script(output_dir, tenant, subscription):
+    """Generate bash script using Azure CLI for device login"""
+    script_parts = [
+        "#!/bin/bash",
+        "set -e",
+        f"OUT_DIR='{output_dir}'",
+        "mkdir -p \"$OUT_DIR\"",
+        "",
+        "echo '🔧 AZURE CLI DEVICE LOGIN BYPASS'",
+        "echo '================================='",
+        "",
+        "# Clear any existing Azure CLI auth",
+        "echo 'Clearing existing Azure CLI authentication...'",
+        "az logout 2>/dev/null || true",
+        "az account clear 2>/dev/null || true",
+        "",
+        "# Force device login with Azure CLI",
+        "echo 'Starting Azure CLI device login...'",
+        "echo 'YOU MUST COMPLETE THE DEVICE LOGIN IN YOUR BROWSER!'",
+    ]
+    
+    if tenant:
+        script_parts.append(f"az login --tenant '{tenant}' --use-device-code")
+    else:
+        script_parts.append("az login --use-device-code")
+    
+    if subscription:
+        script_parts.extend([
+            f"echo 'Setting subscription to: {subscription}'",
+            f"az account set --subscription '{subscription}'"
+        ])
+    
+    script_parts.extend([
+        "",
+        "# Verify authentication",
+        "echo 'Verifying authentication...'", 
+        "az account show",
+        "",
+        "echo 'Azure CLI authentication completed!'",
+        "echo 'Now running PowerShell with authenticated context...'",
+        "",
+        "# Switch to PowerShell and run ARI with the CLI-authenticated context",
+        "echo 'Starting PowerShell with authenticated context...'",
+        "pwsh -NoProfile -Command \"",
+        "Write-Host 'Importing Azure modules...' -ForegroundColor Yellow;",
+        "Import-Module Az.Accounts -Force -ErrorAction Stop;",
+        "Import-Module AzureResourceInventory -Force -ErrorAction Stop;",
+        "",
+        "# Simple approach: Use PowerShell device authentication since CLI is already authenticated",
+        "Write-Host 'Azure CLI authentication successful! Now connecting PowerShell...' -ForegroundColor Yellow;",
+        "try {",
+        "    # Since user is already authenticated via CLI, use simplified PowerShell auth",
+        "    Write-Host 'Connecting PowerShell to Azure...' -ForegroundColor Yellow;",
+        "    Connect-AzAccount -UseDeviceAuthentication -Force -ErrorAction Continue;",
+        "    Write-Host 'PowerShell connected to Azure!' -ForegroundColor Green;",
+        "} catch {",
+        "    Write-Host 'PowerShell connection warning (may still work): ' + \\$_.Exception.Message -ForegroundColor Yellow;",
+        "}",
+        "",
+        "# Verify connection and proceed regardless",
+        "Write-Host 'Checking Azure PowerShell context...' -ForegroundColor Yellow;",
+        "try {",
+        "    \\$context = Get-AzContext -ErrorAction SilentlyContinue;",
+        "    if (\\$context) {",
+        "        Write-Host ('PowerShell connected as: ' + \\$context.Account.Id) -ForegroundColor Green;",
+        "    } else {",
+        "        Write-Host 'No PowerShell context, but proceeding with ARI...' -ForegroundColor Yellow;",
+        "    }",
+        "} catch {",
+        "    Write-Host 'Context check failed, but continuing...' -ForegroundColor Yellow;",
+        "}",
+        "",
+        f"Write-Host 'Running Azure Resource Inventory...' -ForegroundColor Green;",
+    ])
+    
+    # Build ARI command for PowerShell
+    ari_params = []
+    if subscription:
+        ari_params.append(f"-SubscriptionID '{subscription}'")
+    if tenant:
+        ari_params.append(f"-TenantID '{tenant}'")
+    
+    ari_command = f"Invoke-AzureResourceInventory -OutputPath '{output_dir}'"
+    if ari_params:
+        ari_command += " " + " ".join(ari_params)
+    
+    script_parts.extend([
+        "",
+        "# Run Azure Resource Inventory with error handling",
+        "Write-Host 'Starting Azure Resource Inventory execution...' -ForegroundColor Green;",
+        "try {",
+        f"    {ari_command};",
+        "    Write-Host 'Azure Resource Inventory completed successfully!' -ForegroundColor Green;",
+        "} catch {",
+        "    Write-Host 'ARI execution encountered an issue: ' + \\$_.Exception.Message -ForegroundColor Red;",
+        "    Write-Host 'Attempting alternative execution method...' -ForegroundColor Yellow;",
+        "    # Try alternative execution",
+        "    try {",
+        f"        Invoke-AzureResourceInventory -OutputPath '{output_dir}' -SkipAdvisory -SkipDiagram;",
+        "        Write-Host 'Alternative ARI execution completed!' -ForegroundColor Green;",
+        "    } catch {",
+        "        Write-Host 'Both execution methods failed. Error: ' + \\$_.Exception.Message -ForegroundColor Red;",
+        "        exit 1;",
+        "    }",
+        "}",
+        "Write-Host 'Process completed! Check the output directory for results.' -ForegroundColor Cyan;",
+        "\""
+    ])
+    
+    return "\n".join(script_parts)
+
+
+def enhance_device_code_output(line):
+    """Enhance device code output with HTML formatting for better visibility"""
+    import re
+    
+    # Detect device codes (typically 8-9 character alphanumeric)
+    device_code_pattern = r'\b([A-Z0-9]{8,9})\b'
+    # Detect Microsoft device login URLs
+    url_pattern = r'(https://[^\s]+(?:devicelogin|microsoft\.com/devicelogin)[^\s]*)'
+    
+    enhanced_line = line
+    
+    # Make URLs clickable and prominent but compact
+    enhanced_line = re.sub(url_pattern, 
+                          r'<div style="background: linear-gradient(45deg, #0078d4, #106ebe); padding: 10px; border-radius: 8px; margin: 6px 0; text-align: center; max-width: 400px; margin-left: auto; margin-right: auto;"><a href="\1" target="_blank" style="color: white; font-weight: bold; text-decoration: none; font-size: 16px; display: block; padding: 6px;">🌐 OPEN DEVICE LOGIN PAGE<br><span style="font-size: 12px; opacity: 0.8;">\1</span></a></div>', 
+                          enhanced_line)
+    
+    # Make device codes prominent but compact with copy button
+    if 'to authenticate' in line.lower() or 'enter the code' in line.lower():
+        enhanced_line = re.sub(device_code_pattern, 
+                              lambda m: f'''
+<div style="background: linear-gradient(45deg, #ffeb3b, #ffc107); padding: 12px; border-radius: 10px; margin: 8px 0; text-align: center; border: 2px solid #ff9800; max-width: 400px; margin-left: auto; margin-right: auto;">
+    <div style="color: #000; font-weight: bold; font-size: 16px; margin-bottom: 8px;">🔑 DEVICE CODE:</div>
+    <div style="background: white; padding: 8px; border-radius: 6px; margin: 6px 0; border: 1px solid #333;">
+        <span id="deviceCode_{m.group(1)}" style="font-family: monospace; font-size: 24px; font-weight: bold; color: #000; letter-spacing: 2px;">{m.group(1)}</span>
+    </div>
+    <button onclick="copyDeviceCode('{m.group(1)}')" style="background: #4caf50; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 14px; font-weight: bold; cursor: pointer; margin-top: 6px;">
+        📋 COPY CODE
+    </button>
+    <div style="color: #000; font-size: 12px; margin-top: 6px;">Copy and paste in device login page</div>
+</div>
+<script>
+function copyDeviceCode(code) {{
+    if (navigator.clipboard && navigator.clipboard.writeText) {{
+        navigator.clipboard.writeText(code).then(() => {{
+            showCopySuccess(code);
+        }}).catch(() => {{
+            fallbackCopy(code);
+        }});
+    }} else {{
+        fallbackCopy(code);
+    }}
+}}
+function fallbackCopy(code) {{
+    const textArea = document.createElement('textarea');
+    textArea.value = code;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    textArea.style.top = '-999999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {{
+        document.execCommand('copy');
+        showCopySuccess(code);
+    }} catch (err) {{
+        alert('Please manually copy the code: ' + code);
+    }}
+    document.body.removeChild(textArea);
+}}
+function showCopySuccess(code) {{
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '✅ COPIED!';
+    button.style.background = '#2e7d32';
+    setTimeout(() => {{
+        button.innerHTML = originalText;
+        button.style.background = '#4caf50';
+    }}, 2000);
+}}
+</script>
+''', enhanced_line)
+    
+    # Add special formatting for key messages - compact version
+    if 'YOU MUST COMPLETE THE DEVICE LOGIN' in line:
+        enhanced_line = f'<div style="background-color: #ff5722; color: white; padding: 8px; border-radius: 6px; font-weight: bold; margin: 8px 0; font-size: 14px; text-align: center; border: 2px solid #d32f2f; max-width: 400px; margin-left: auto; margin-right: auto;">🚨 {line.strip()} 🚨</div>'
+    elif 'To sign in, use a web browser' in line:
+        enhanced_line = f'<div style="background: linear-gradient(45deg, #2196f3, #1976d2); color: white; padding: 8px; border-radius: 6px; font-weight: bold; margin: 8px 0; font-size: 14px; text-align: center; border: 2px solid #1565c0; max-width: 400px; margin-left: auto; margin-right: auto;">👆 {enhanced_line.strip()} 👆</div>'
+    
+    return enhanced_line
+
+
+def run_cli_job(job_id, script):
+    """Run Azure CLI script with enhanced device code formatting"""
+    try:
+        jobs[job_id]['output'] += "Starting Azure CLI device login process...\n"
+        
+        # Write script to file
+        script_file = "/tmp/cli_device_login.sh"
+        with open(script_file, 'w') as f:
+            f.write(script)
+        os.chmod(script_file, 0o755)
+        
+        # Run the script
+        process = subprocess.Popen(
+            ["/bin/bash", script_file],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+        
+        jobs[job_id]['process'] = process
+        
+        # Stream output with enhanced formatting
+        for line in iter(process.stdout.readline, ''):
+            if line:
+                # Enhance device code formatting
+                enhanced_line = enhance_device_code_output(line)
+                jobs[job_id]['output'] += enhanced_line
+        
+        process.wait()
+        
+        if process.returncode == 0:
+            jobs[job_id]['status'] = 'completed'
+            jobs[job_id]['output'] += "\n✅ Azure CLI device login completed successfully!"
+        else:
+            jobs[job_id]['status'] = 'failed'
+            jobs[job_id]['output'] += f"\n❌ Azure CLI device login failed with exit code {process.returncode}"
+            
+    except Exception as e:
+        jobs[job_id]['status'] = 'failed'
+        jobs[job_id]['output'] += f"\n❌ Error: {str(e)}"
+
+
+@app.route("/download/<path:filename>", methods=["GET"])
+def download_file(filename: str):
+    from flask import send_from_directory, abort
+
+    output_dir = get_output_dir()
+    safe_name = os.path.basename(filename)
+    file_path = os.path.join(output_dir, safe_name)
+    if not os.path.exists(file_path):
+        abort(404)
+    return send_from_directory(output_dir, safe_name, as_attachment=True)
+
+
+def cleanup_old_jobs():
+    """Clean up jobs older than 1 hour"""
+    current_time = datetime.now()
+    jobs_to_remove = []
+    
+    for job_id, job in jobs.items():
+        job_age = current_time - job['created_at']
+        if job_age.total_seconds() > 3600:  # 1 hour
+            jobs_to_remove.append(job_id)
+    
+    for job_id in jobs_to_remove:
+        if jobs[job_id].get('process'):
+            try:
+                jobs[job_id]['process'].terminate()
+            except:
+                pass
+        del jobs[job_id]
+
+
+# Start cleanup thread
+def periodic_cleanup():
+    while True:
+        time.sleep(300)  # Run every 5 minutes
+        cleanup_old_jobs()
+
+cleanup_thread = threading.Thread(target=periodic_cleanup)
+cleanup_thread.daemon = True
+cleanup_thread.start()
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "8000"))
+    app.run(host="0.0.0.0", port=port)
+
