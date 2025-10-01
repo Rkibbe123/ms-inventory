@@ -1,0 +1,145 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "containerGroupName": {
+            "type": "string",
+            "defaultValue": "ari-web-interface",
+            "metadata": {
+                "description": "Name of the container group"
+            }
+        },
+        "containerImageName": {
+            "type": "string",
+            "defaultValue": "your-registry.azurecr.io/ari-web-interface:latest",
+            "metadata": {
+                "description": "Container image name including registry and tag"
+            }
+        },
+        "dnsNameLabel": {
+            "type": "string",
+            "defaultValue": "[concat('ari-web-', uniqueString(resourceGroup().id))]",
+            "metadata": {
+                "description": "DNS name label for the public IP"
+            }
+        },
+        "location": {
+            "type": "string",
+            "defaultValue": "[resourceGroup().location]",
+            "metadata": {
+                "description": "Location for all resources"
+            }
+        },
+        "cpuCores": {
+            "type": "string",
+            "defaultValue": "2",
+            "allowedValues": [
+                "1",
+                "2",
+                "4"
+            ],
+            "metadata": {
+                "description": "Number of CPU cores for the container"
+            }
+        },
+        "memoryInGb": {
+            "type": "string",
+            "defaultValue": "4",
+            "allowedValues": [
+                "1",
+                "2",
+                "4",
+                "8",
+                "16"
+            ],
+            "metadata": {
+                "description": "Amount of memory in GB for the container"
+            }
+        },
+        "registryUsername": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Container registry username (if using private registry)"
+            }
+        },
+        "registryPassword": {
+            "type": "securestring",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Container registry password (if using private registry)"
+            }
+        }
+    },
+    "variables": {
+        "containerName": "ari-web-container",
+        "port": 3000
+    },
+    "resources": [
+        {
+            "type": "Microsoft.ContainerInstance/containerGroups",
+            "apiVersion": "2021-03-01",
+            "name": "[parameters('containerGroupName')]",
+            "location": "[parameters('location')]",
+            "properties": {
+                "containers": [
+                    {
+                        "name": "[variables('containerName')]",
+                        "properties": {
+                            "image": "[parameters('containerImageName')]",
+                            "ports": [
+                                {
+                                    "port": "[variables('port')]",
+                                    "protocol": "TCP"
+                                }
+                            ],
+                            "resources": {
+                                "requests": {
+                                    "cpu": "[parameters('cpuCores')]",
+                                    "memoryInGB": "[parameters('memoryInGb')]"
+                                }
+                            },
+                            "environmentVariables": [
+                                {
+                                    "name": "PORT",
+                                    "value": "[string(variables('port'))]"
+                                },
+                                {
+                                    "name": "NODE_ENV",
+                                    "value": "production"
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "osType": "Linux",
+                "restartPolicy": "Always",
+                "ipAddress": {
+                    "type": "Public",
+                    "dnsNameLabel": "[parameters('dnsNameLabel')]",
+                    "ports": [
+                        {
+                            "port": "[variables('port')]",
+                            "protocol": "TCP"
+                        }
+                    ]
+                },
+                "imageRegistryCredentials": "[if(empty(parameters('registryUsername')), json('null'), createArray(createObject('server', split(parameters('containerImageName'), '/')[0], 'username', parameters('registryUsername'), 'password', parameters('registryPassword'))))]"
+            }
+        }
+    ],
+    "outputs": {
+        "containerIPv4Address": {
+            "type": "string",
+            "value": "[reference(resourceId('Microsoft.ContainerInstance/containerGroups/', parameters('containerGroupName'))).ipAddress.ip]"
+        },
+        "containerFQDN": {
+            "type": "string",
+            "value": "[reference(resourceId('Microsoft.ContainerInstance/containerGroups/', parameters('containerGroupName'))).ipAddress.fqdn]"
+        },
+        "applicationUrl": {
+            "type": "string",
+            "value": "[concat('http://', reference(resourceId('Microsoft.ContainerInstance/containerGroups/', parameters('containerGroupName'))).ipAddress.fqdn, ':', variables('port'))]"
+        }
+    }
+}
