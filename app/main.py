@@ -259,20 +259,84 @@ def enhance_device_code_output(line):
     
     # Device code pattern matching
     if "To sign in, use a web browser" in line:
-        enhanced = f"<strong>{line.strip()}</strong><br>"
+        enhanced = f'<div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #2196f3;"><strong style="color: #1976d2; font-size: 16px;">📱 {line.strip()}</strong></div>'
     elif "https://microsoft.com/devicelogin" in line:
         url = "https://microsoft.com/devicelogin"
-        enhanced = f'<strong>Open: <a href="{url}" target="_blank" style="color: #0078d4;">{url}</a></strong><br>'
+        enhanced = f'''<div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin: 15px 0; text-align: center; border: 2px solid #4caf50;">
+            <strong style="color: #2e7d32; font-size: 18px; display: block; margin-bottom: 10px;">🌐 Open this link in your browser:</strong>
+            <a href="{url}" target="_blank" style="
+                display: inline-block; 
+                background: linear-gradient(135deg, #4caf50, #388e3c); 
+                color: white; 
+                padding: 15px 30px; 
+                text-decoration: none; 
+                border-radius: 8px; 
+                font-size: 16px; 
+                font-weight: bold; 
+                box-shadow: 0 4px 8px rgba(76, 175, 80, 0.3);
+                transition: all 0.3s ease;
+            " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(76, 175, 80, 0.4)'" 
+               onmouseout="this.style.transform='translateY(0px)'; this.style.boxShadow='0 4px 8px rgba(76, 175, 80, 0.3)'">{url}</a>
+        </div>'''
     elif re.search(r'\b[A-Z0-9]{4}-[A-Z0-9]{4}\b', line):
         # Device code pattern like "XXXX-XXXX"
         match = re.search(r'\b([A-Z0-9]{4}-[A-Z0-9]{4})\b', line)
         if match:
             code = match.group(1)
-            enhanced = f'<span style="background-color: yellow; padding: 4px 8px; font-size: 18px; font-weight: bold; border-radius: 4px;">{code}</span> &lt;- YOUR DEVICE CODE<br>'
+            enhanced = f'''<div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin: 15px 0; text-align: center; border: 3px solid #ffc107;">
+                <strong style="color: #856404; font-size: 16px; display: block; margin-bottom: 10px;">🔑 Your Device Code:</strong>
+                <div style="position: relative; display: inline-block;">
+                    <span id="deviceCode" style="
+                        background: linear-gradient(135deg, #ffeb3b, #ffc107); 
+                        padding: 15px 25px; 
+                        font-size: 28px; 
+                        font-weight: bold; 
+                        border-radius: 8px; 
+                        color: #f57f17; 
+                        font-family: 'Courier New', monospace; 
+                        letter-spacing: 3px;
+                        box-shadow: 0 4px 8px rgba(255, 193, 7, 0.3);
+                        border: 2px solid #ff8f00;
+                    ">{code}</span>
+                    <button onclick="copyDeviceCode()" style="
+                        margin-left: 15px; 
+                        background: #2196f3; 
+                        color: white; 
+                        border: none; 
+                        padding: 12px 20px; 
+                        border-radius: 6px; 
+                        cursor: pointer; 
+                        font-size: 14px; 
+                        font-weight: bold;
+                        box-shadow: 0 2px 4px rgba(33, 150, 243, 0.3);
+                        transition: all 0.3s ease;
+                    " onmouseover="this.style.background='#1976d2'" onmouseout="this.style.background='#2196f3'">
+                        📋 Copy Code
+                    </button>
+                </div>
+                <div style="margin-top: 10px; color: #856404; font-size: 14px;">↑ Copy this code and paste it in the browser</div>
+                <script>
+                    function copyDeviceCode() {{
+                        const code = document.getElementById('deviceCode').textContent;
+                        navigator.clipboard.writeText(code).then(() => {{
+                            alert('Device code copied to clipboard: ' + code);
+                        }}).catch(() => {{
+                            // Fallback for older browsers
+                            const textArea = document.createElement('textarea');
+                            textArea.value = code;
+                            document.body.appendChild(textArea);
+                            textArea.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(textArea);
+                            alert('Device code copied to clipboard: ' + code);
+                        }});
+                    }}
+                </script>
+            </div>'''
         else:
             enhanced = line + "<br>"
     elif "Continuing will" in line or "complete the authentication" in line:
-        enhanced = f"<em>{line.strip()}</em><br>"
+        enhanced = f'<div style="background: #f3e5f5; padding: 12px; border-radius: 6px; margin: 8px 0; border-left: 3px solid #9c27b0;"><em style="color: #7b1fa2; font-size: 14px;">ℹ️ {line.strip()}</em></div>'
     else:
         enhanced = line + "<br>"
     
@@ -427,15 +491,15 @@ def get_job_status(job_id):
 
 
 def generate_cli_device_login_script(output_dir, tenant, subscription):
-    """Generate bash script using Azure CLI for device login"""
+    """Generate bash script using Azure CLI for device login and ARI execution"""
     script_parts = [
         "#!/bin/bash",
         "set -e",
         f"OUT_DIR='{output_dir}'",
         "mkdir -p \"$OUT_DIR\"",
         "",
-        "echo 'AZURE CLI DEVICE LOGIN BYPASS'",
-        "echo '================================='",
+        "echo '🔧 AZURE CLI DEVICE LOGIN & ARI EXECUTION'",
+        "echo '======================================='",
         "",
         "# Clear any existing Azure CLI auth",
         "echo 'Clearing existing Azure CLI authentication...'",
@@ -462,10 +526,65 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
         "",
         "# Verify authentication",
         "echo 'Verifying authentication...'", 
-        "az account show",
+        "ACCOUNT_INFO=$(az account show)",
+        "echo \"$ACCOUNT_INFO\"",
         "",
-        "echo 'Azure CLI authentication completed!'",
-        "echo 'Note: You can now use this authentication for other Azure operations'",
+        "# Extract subscription and tenant info for PowerShell",
+        "CURRENT_SUBSCRIPTION=$(echo \"$ACCOUNT_INFO\" | grep -o '\"id\": \"[^\"]*' | head -1 | cut -d'\"' -f4)",
+        "CURRENT_TENANT=$(echo \"$ACCOUNT_INFO\" | grep -o '\"tenantId\": \"[^\"]*' | head -1 | cut -d'\"' -f4)",
+        "",
+        "echo '✅ Azure CLI authentication completed!'",
+        "echo \"📋 Current Subscription: $CURRENT_SUBSCRIPTION\"",
+        "echo \"🏢 Current Tenant: $CURRENT_TENANT\"",
+        "",
+        "echo '🚀 Starting Azure Resource Inventory execution...'",
+        "echo '================================================='",
+        "",
+        "# Run Azure Resource Inventory using PowerShell with Azure CLI authentication",
+        "pwsh -NoProfile -Command \"",
+        "    Write-Host 'Importing Azure Resource Inventory module...' -ForegroundColor Green;",
+        "    Import-Module AzureResourceInventory -Force;",
+        "    ",
+        "    Write-Host 'Connecting to Azure using CLI credentials...' -ForegroundColor Green;",
+        "    Connect-AzAccount -UseDeviceAuthentication:$false -Force;",
+        "    ",
+    ])
+    
+    # Add subscription selection if specified
+    if subscription:
+        script_parts.append(f"    Set-AzContext -SubscriptionId '{subscription}' | Out-Null;")
+    
+    # Add tenant selection if specified  
+    if tenant:
+        script_parts.append(f"    # Using tenant: {tenant}")
+    
+    script_parts.extend([
+        "    ",
+        "    Write-Host 'Starting Invoke-ARI execution...' -ForegroundColor Yellow;",
+        f"    $params = @{{",
+        f"        ReportDir = '{output_dir}';",
+        f"        ReportName = 'AzureResourceInventory_' + (Get-Date -Format 'yyyyMMdd_HHmmss');",
+        f"        SkipDiagram = $true;",
+        f"        IncludeTags = $true;",
+        f"    }};",
+        "    ",
+        "    if ('$CURRENT_SUBSCRIPTION') { $params.SubscriptionID = '$CURRENT_SUBSCRIPTION' };",
+        "    if ('$CURRENT_TENANT') { $params.TenantID = '$CURRENT_TENANT' };",
+        "    ",
+        "    Write-Host 'Executing Invoke-ARI with parameters:' -ForegroundColor Cyan;",
+        "    $params | Format-Table | Out-String | Write-Host;",
+        "    ",
+        "    try {",
+        "        Invoke-ARI @params -Verbose;",
+        "        Write-Host '✅ Azure Resource Inventory completed successfully!' -ForegroundColor Green;",
+        f"        Get-ChildItem -Path '{output_dir}' | Format-Table Name, Length, LastWriteTime;",
+        "    } catch {",
+        "        Write-Error \\\"❌ ARI execution failed: $($_.Exception.Message)\\\";",
+        "        throw;",
+        "    }",
+        "\"",
+        "",
+        "echo '🎉 Process completed! Check the outputs directory for your reports.'",
     ])
     
     return "\n".join(script_parts)
@@ -504,10 +623,16 @@ def run_cli_job(job_id, script):
         
         if process.returncode == 0:
             jobs[job_id]['status'] = 'completed'
-            jobs[job_id]['output'] += "<br>Azure CLI device login completed successfully!"
+            jobs[job_id]['output'] += '''<br><div style="background: #d4edda; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #28a745;">
+                <strong style="color: #155724; font-size: 16px;">🎉 Azure Resource Inventory completed successfully!</strong><br>
+                <span style="color: #155724;">Your reports have been generated and are ready for download.</span>
+            </div>'''
         else:
             jobs[job_id]['status'] = 'failed'
-            jobs[job_id]['output'] += f"<br>Azure CLI device login failed with exit code {process.returncode}"
+            jobs[job_id]['output'] += f'''<br><div style="background: #f8d7da; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #dc3545;">
+                <strong style="color: #721c24; font-size: 16px;">❌ Process failed with exit code {process.returncode}</strong><br>
+                <span style="color: #721c24;">Please check the output above for error details.</span>
+            </div>'''
             
     except Exception as e:
         jobs[job_id]['status'] = 'failed'
