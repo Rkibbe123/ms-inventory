@@ -27,7 +27,7 @@ INDEX_HTML = """
         font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
         margin: 0; 
         padding: 40px; 
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #0ea5e9 100%);
         min-height: 100vh;
       }
       .container { 
@@ -259,84 +259,20 @@ def enhance_device_code_output(line):
     
     # Device code pattern matching
     if "To sign in, use a web browser" in line:
-        enhanced = f'<div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #2196f3;"><strong style="color: #1976d2; font-size: 16px;">📱 {line.strip()}</strong></div>'
+        enhanced = f'<div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 10px 0;"><strong style="color: #1976d2;">🌐 {line.strip()}</strong></div>'
     elif "https://microsoft.com/devicelogin" in line:
         url = "https://microsoft.com/devicelogin"
-        enhanced = f'''<div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin: 15px 0; text-align: center; border: 2px solid #4caf50;">
-            <strong style="color: #2e7d32; font-size: 18px; display: block; margin-bottom: 10px;">🌐 Open this link in your browser:</strong>
-            <a href="{url}" target="_blank" style="
-                display: inline-block; 
-                background: linear-gradient(135deg, #4caf50, #388e3c); 
-                color: white; 
-                padding: 15px 30px; 
-                text-decoration: none; 
-                border-radius: 8px; 
-                font-size: 16px; 
-                font-weight: bold; 
-                box-shadow: 0 4px 8px rgba(76, 175, 80, 0.3);
-                transition: all 0.3s ease;
-            " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(76, 175, 80, 0.4)'" 
-               onmouseout="this.style.transform='translateY(0px)'; this.style.boxShadow='0 4px 8px rgba(76, 175, 80, 0.3)'">{url}</a>
-        </div>'''
+        enhanced = f'<div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin: 15px 0; text-align: center;"><strong style="color: #2e7d32; display: block; margin-bottom: 10px;">🔗 Click to open login page:</strong><a href="{url}" target="_blank" style="display: inline-block; background: #4caf50; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;">{url}</a></div>'
     elif re.search(r'\b[A-Z0-9]{4}-[A-Z0-9]{4}\b', line):
         # Device code pattern like "XXXX-XXXX"
         match = re.search(r'\b([A-Z0-9]{4}-[A-Z0-9]{4})\b', line)
         if match:
             code = match.group(1)
-            enhanced = f'''<div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin: 15px 0; text-align: center; border: 3px solid #ffc107;">
-                <strong style="color: #856404; font-size: 16px; display: block; margin-bottom: 10px;">🔑 Your Device Code:</strong>
-                <div style="position: relative; display: inline-block;">
-                    <span id="deviceCode" style="
-                        background: linear-gradient(135deg, #ffeb3b, #ffc107); 
-                        padding: 15px 25px; 
-                        font-size: 28px; 
-                        font-weight: bold; 
-                        border-radius: 8px; 
-                        color: #f57f17; 
-                        font-family: 'Courier New', monospace; 
-                        letter-spacing: 3px;
-                        box-shadow: 0 4px 8px rgba(255, 193, 7, 0.3);
-                        border: 2px solid #ff8f00;
-                    ">{code}</span>
-                    <button onclick="copyDeviceCode()" style="
-                        margin-left: 15px; 
-                        background: #2196f3; 
-                        color: white; 
-                        border: none; 
-                        padding: 12px 20px; 
-                        border-radius: 6px; 
-                        cursor: pointer; 
-                        font-size: 14px; 
-                        font-weight: bold;
-                        box-shadow: 0 2px 4px rgba(33, 150, 243, 0.3);
-                        transition: all 0.3s ease;
-                    " onmouseover="this.style.background='#1976d2'" onmouseout="this.style.background='#2196f3'">
-                        📋 Copy Code
-                    </button>
-                </div>
-                <div style="margin-top: 10px; color: #856404; font-size: 14px;">↑ Copy this code and paste it in the browser</div>
-                <script>
-                    function copyDeviceCode() {{
-                        const code = document.getElementById('deviceCode').textContent;
-                        navigator.clipboard.writeText(code).then(() => {{
-                            alert('Device code copied to clipboard: ' + code);
-                        }}).catch(() => {{
-                            // Fallback for older browsers
-                            const textArea = document.createElement('textarea');
-                            textArea.value = code;
-                            document.body.appendChild(textArea);
-                            textArea.select();
-                            document.execCommand('copy');
-                            document.body.removeChild(textArea);
-                            alert('Device code copied to clipboard: ' + code);
-                        }});
-                    }}
-                </script>
-            </div>'''
+            enhanced = f'<div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin: 15px 0; text-align: center;"><strong style="color: #856404; display: block; margin-bottom: 10px;">🔑 Your Device Code:</strong><span style="background: #ffeb3b; padding: 10px 20px; font-size: 24px; font-weight: bold; border-radius: 6px; color: #f57f17; font-family: monospace; letter-spacing: 2px;">{code}</span><br><button onclick="navigator.clipboard.writeText(\'{code}\'); alert(\'Code copied!\');" style="margin-top: 10px; background: #2196f3; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;">📋 Copy Code</button></div>'
         else:
             enhanced = line + "<br>"
     elif "Continuing will" in line or "complete the authentication" in line:
-        enhanced = f'<div style="background: #f3e5f5; padding: 12px; border-radius: 6px; margin: 8px 0; border-left: 3px solid #9c27b0;"><em style="color: #7b1fa2; font-size: 14px;">ℹ️ {line.strip()}</em></div>'
+        enhanced = f'<div style="background: #f3e5f5; padding: 12px; border-radius: 6px; margin: 8px 0;"><em style="color: #7b1fa2;">ℹ️ {line.strip()}</em></div>'
     else:
         enhanced = line + "<br>"
     
@@ -359,44 +295,134 @@ def cli_device_login():
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Azure CLI Device Login - Azure Resource Inventory</title>
     <style>
-      body { font-family: system-ui, sans-serif; margin: 40px; }
-      .card { max-width: 720px; margin: 0 auto; padding: 24px; border: 1px solid #ccc; border-radius: 8px; }
-      h1 { margin-top: 0; color: #0078d4; }
-      .warning { padding: 15px; background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; margin: 20px 0; }
-      .form-group { margin-bottom: 20px; }
-      label { display: block; margin-bottom: 8px; font-weight: 500; }
-      input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; }
-      button { background-color: #0078d4; color: white; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; }
-      button:hover { background-color: #106ebe; }
-      .link { margin-top: 12px; }
+      body { 
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+        margin: 0; 
+        padding: 40px; 
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #0ea5e9 100%);
+        min-height: 100vh;
+      }
+      .container { 
+        max-width: 800px; 
+        margin: 0 auto; 
+        background: white; 
+        border-radius: 16px; 
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        overflow: hidden;
+      }
+      .header { 
+        background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%); 
+        color: white; 
+        padding: 40px; 
+        text-align: center; 
+      }
+      .header h1 { 
+        margin: 0; 
+        font-size: 2.5rem; 
+        font-weight: 700; 
+        text-shadow: 0 2px 4px rgba(0,0,0,0.3); 
+      }
+      .header p { 
+        margin: 10px 0 0 0; 
+        font-size: 1.2rem; 
+        opacity: 0.9; 
+      }
+      .content { padding: 40px; }
+      .warning { 
+        background: #f0f9ff; 
+        padding: 20px; 
+        border-radius: 12px; 
+        margin-bottom: 30px; 
+        border-left: 5px solid #0078d4; 
+      }
+      .warning strong { color: #0078d4; }
+      .form-group { margin-bottom: 25px; }
+      label { 
+        display: block; 
+        margin-bottom: 8px; 
+        font-weight: 600; 
+        color: #1e293b;
+      }
+      input { 
+        width: 100%; 
+        padding: 12px 16px; 
+        border: 2px solid #e2e8f0; 
+        border-radius: 8px; 
+        font-size: 1rem;
+        transition: border-color 0.2s;
+      }
+      input:focus { 
+        outline: none;
+        border-color: #0078d4;
+        box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
+      }
+      .run-button { 
+        display: inline-block; 
+        background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); 
+        color: white; 
+        padding: 16px 32px; 
+        font-size: 1.1rem; 
+        font-weight: 700; 
+        border: none; 
+        border-radius: 12px; 
+        cursor: pointer; 
+        text-decoration: none; 
+        box-shadow: 0 10px 15px -3px rgba(220, 38, 38, 0.3), 0 4px 6px -2px rgba(220, 38, 38, 0.05);
+        transition: all 0.3s ease;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+      .run-button:hover { 
+        transform: translateY(-2px); 
+        box-shadow: 0 15px 25px -5px rgba(220, 38, 38, 0.4), 0 10px 10px -5px rgba(220, 38, 38, 0.1);
+      }
+      .back-link { 
+        margin-top: 20px; 
+        text-align: center;
+      }
+      .back-link a {
+        color: #0078d4;
+        text-decoration: none;
+        font-weight: 500;
+      }
+      .back-link a:hover {
+        text-decoration: underline;
+      }
     </style>
   </head>
   <body>
-    <div class="card">
-      <h1>Azure Resource Inventory - Device Login</h1>
-      
-      <div class="warning">
-        <strong>Secure Authentication:</strong> Uses Azure CLI device login for secure authentication.
-        <br><strong>Your credentials are never stored</strong> - authentication is handled directly by Microsoft Azure.
+    <div class="container">
+      <div class="header">
+        <h1>Device Authentication</h1>
+        <p>Secure Azure CLI Login for Resource Inventory</p>
       </div>
       
-      <form method="POST">
-        <div class="form-group">
-          <label for="tenant">Tenant ID (optional):</label>
-          <input type="text" name="tenant" id="tenant" value="TENANT_VALUE" placeholder="Leave empty for default tenant">
+      <div class="content">
+        <div class="warning">
+          <strong>🔒 Secure Authentication:</strong> Uses Azure CLI device login for secure authentication.
+          <br><strong>Your credentials are never stored</strong> - authentication is handled directly by Microsoft Azure.
         </div>
         
-        <div class="form-group">
-          <label for="subscription">Subscription ID (optional):</label>
-          <input type="text" name="subscription" id="subscription" value="SUBSCRIPTION_VALUE" placeholder="Leave empty for default subscription">
-        </div>
-        
-        <button type="submit">Start Azure CLI Device Login</button>
-        
-        <div class="link">
-          <a href="/">Back to Main Page</a>
-        </div>
-      </form>
+        <form method="POST">
+          <div class="form-group">
+            <label for="tenant">Tenant ID (optional):</label>
+            <input type="text" name="tenant" id="tenant" value="TENANT_VALUE" placeholder="Leave empty for default tenant">
+          </div>
+          
+          <div class="form-group">
+            <label for="subscription">Subscription ID (optional):</label>
+            <input type="text" name="subscription" id="subscription" value="SUBSCRIPTION_VALUE" placeholder="Leave empty for default subscription">
+          </div>
+          
+          <div style="text-align: center;">
+            <button type="submit" class="run-button">Start Authentication</button>
+          </div>
+          
+          <div class="back-link">
+            <a href="/">← Back to Main Page</a>
+          </div>
+        </form>
+      </div>
     </div>
   </body>
 </html>'''
@@ -434,21 +460,86 @@ def cli_device_login():
   <head>
     <title>CLI Device Login - Running</title>
     <style>
-      body { font-family: system-ui, sans-serif; margin: 40px; }
-      .card { max-width: 720px; margin: 0 auto; padding: 24px; border: 1px solid #ccc; border-radius: 8px; }
-      .spinner { display: inline-block; width: 20px; height: 20px; border: 3px solid #f3f3f3; border-top: 3px solid #0078d4; border-radius: 50%; animation: spin 2s linear infinite; margin-right: 10px; }
+      body { 
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+        margin: 0; 
+        padding: 40px; 
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #0ea5e9 100%);
+        min-height: 100vh;
+      }
+      .container { 
+        max-width: 900px; 
+        margin: 0 auto; 
+        background: white; 
+        border-radius: 16px; 
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        overflow: hidden;
+      }
+      .header { 
+        background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%); 
+        color: white; 
+        padding: 40px; 
+        text-align: center; 
+      }
+      .header h1 { 
+        margin: 0; 
+        font-size: 2.5rem; 
+        font-weight: 700; 
+        text-shadow: 0 2px 4px rgba(0,0,0,0.3); 
+      }
+      .header p { 
+        margin: 10px 0 0 0; 
+        font-size: 1.2rem; 
+        opacity: 0.9; 
+      }
+      .content { padding: 40px; }
+      .spinner { 
+        display: inline-block; 
+        width: 24px; 
+        height: 24px; 
+        border: 3px solid #e2e8f0; 
+        border-top: 3px solid #0078d4; 
+        border-radius: 50%; 
+        animation: spin 1s linear infinite; 
+        margin-right: 12px; 
+      }
       @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-      .output { background: #1e293b; color: #e2e8f0; padding: 15px; border-radius: 8px; font-family: monospace; white-space: pre-wrap; max-height: 400px; overflow-y: auto; margin-top: 10px; }
+      .status {
+        background: #f0f9ff;
+        padding: 20px;
+        border-radius: 12px;
+        margin-bottom: 20px;
+        border-left: 5px solid #0078d4;
+        font-size: 1.1rem;
+        font-weight: 500;
+      }
+      .output { 
+        background: #1e293b; 
+        color: #e2e8f0; 
+        padding: 20px; 
+        border-radius: 12px; 
+        font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace; 
+        white-space: pre-wrap; 
+        max-height: 500px; 
+        overflow-y: auto; 
+        margin-top: 20px;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
     </style>
   </head>
   <body>
-    <div class="card">
-      <h1>Azure CLI Device Login</h1>
-      <div style="color: #0078d4;">
-        <span class="spinner"></span>
-        Running Azure CLI device login... Watch for authentication instructions!
+    <div class="container">
+      <div class="header">
+        <h1>Azure CLI Device Login</h1>
+        <p>Authentication & Resource Inventory in Progress</p>
       </div>
-      <div id="output" class="output"></div>
+      
+      <div class="content">
+        <div class="status">
+          <span class="spinner"></span>
+          Running Azure CLI device login... Watch for authentication instructions!
+        </div>
+        <div id="output" class="output"></div>
       
       <script>
         const jobId = ''' + f"'{job_id}'" + ''';
@@ -537,55 +628,47 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
         "echo \"📋 Current Subscription: $CURRENT_SUBSCRIPTION\"",
         "echo \"🏢 Current Tenant: $CURRENT_TENANT\"",
         "",
-        "echo '🚀 Starting Azure Resource Inventory execution...'",
+        "echo 'Starting Azure Resource Inventory execution...'",
         "echo '================================================='",
         "",
-        "# Run Azure Resource Inventory using PowerShell with Azure CLI authentication",
-        "pwsh -NoProfile -Command \"",
-        "    Write-Host 'Importing Azure Resource Inventory module...' -ForegroundColor Green;",
-        "    Import-Module AzureResourceInventory -Force;",
-        "    ",
-        "    Write-Host 'Connecting to Azure using CLI credentials...' -ForegroundColor Green;",
-        "    Connect-AzAccount -UseDeviceAuthentication:$false -Force;",
-        "    ",
-    ])
-    
-    # Add subscription selection if specified
-    if subscription:
-        script_parts.append(f"    Set-AzContext -SubscriptionId '{subscription}' | Out-Null;")
-    
-    # Add tenant selection if specified  
-    if tenant:
-        script_parts.append(f"    # Using tenant: {tenant}")
-    
-    script_parts.extend([
-        "    ",
-        "    Write-Host 'Starting Invoke-ARI execution...' -ForegroundColor Yellow;",
-        f"    $params = @{{",
-        f"        ReportDir = '{output_dir}';",
-        f"        ReportName = 'AzureResourceInventory_' + (Get-Date -Format 'yyyyMMdd_HHmmss');",
-        f"        SkipDiagram = $true;",
-        f"        IncludeTags = $true;",
-        f"    }};",
-        "    ",
-        "    if ('$CURRENT_SUBSCRIPTION') { $params.SubscriptionID = '$CURRENT_SUBSCRIPTION' };",
-        "    if ('$CURRENT_TENANT') { $params.TenantID = '$CURRENT_TENANT' };",
-        "    ",
-        "    Write-Host 'Executing Invoke-ARI with parameters:' -ForegroundColor Cyan;",
-        "    $params | Format-Table | Out-String | Write-Host;",
-        "    ",
-        "    try {",
-        "        Invoke-ARI @params -Verbose;",
-        "        Write-Host '✅ Azure Resource Inventory completed successfully!' -ForegroundColor Green;",
-        f"        Get-ChildItem -Path '{output_dir}' | Format-Table Name, Length, LastWriteTime;",
-        "    } catch {",
-        "        Write-Error \\\"❌ ARI execution failed: $($_.Exception.Message)\\\";",
-        "        throw;",
-        "    }",
-        "\"",
+        "# Create PowerShell script file to avoid complex escaping",
+        "cat > /tmp/run_ari.ps1 << 'EOF'",
+        "Write-Host 'Importing Azure Resource Inventory module...' -ForegroundColor Green",
+        "Import-Module AzureResourceInventory -Force",
         "",
-        "echo '🎉 Process completed! Check the outputs directory for your reports.'",
+        "Write-Host 'Connecting to Azure using CLI credentials...' -ForegroundColor Green",
+        "Connect-AzAccount -UseDeviceAuthentication:$false -Force",
+        ""
     ])
+    
+    # Add subscription setting if specified
+    if subscription:
+        script_parts.append(f"Set-AzContext -SubscriptionId '{subscription}'")
+    
+    # Add the ARI execution
+    script_parts.extend([
+        "",
+        f"$reportDir = '{output_dir}'",
+        "$reportName = 'AzureResourceInventory_' + (Get-Date -Format 'yyyyMMdd_HHmmss')",
+        "",
+        "Write-Host 'Starting Invoke-ARI execution...' -ForegroundColor Yellow",
+        "try {",
+        "    Invoke-ARI -ReportDir $reportDir -ReportName $reportName -SkipDiagram -IncludeTags -Verbose",
+        "    Write-Host 'Azure Resource Inventory completed successfully!' -ForegroundColor Green",
+        "    Get-ChildItem -Path $reportDir | Format-Table Name, Length, LastWriteTime",
+        "} catch {",
+        "    Write-Error \"ARI execution failed: $_\"",
+        "    throw",
+        "}",
+        "EOF",
+        "",
+        "# Execute the PowerShell script",
+        "pwsh -NoProfile -File /tmp/run_ari.ps1",
+        "",
+        "echo 'Process completed! Check the outputs directory for your reports.'"
+    ])
+    
+    return "\n".join(script_parts)
     
     return "\n".join(script_parts)
 
