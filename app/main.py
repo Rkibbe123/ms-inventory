@@ -494,12 +494,13 @@ def cli_device_login():
         min-height: 100vh;
       }
       .container { 
-        max-width: 700px; 
+        max-width: 1000px; 
         margin: 0 auto; 
         background: white; 
         border-radius: 12px; 
         box-shadow: 0 15px 20px -5px rgba(0, 0, 0, 0.1), 0 8px 8px -5px rgba(0, 0, 0, 0.04);
         overflow: hidden;
+        min-height: 85vh;
       }
       .header { 
         background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%); 
@@ -518,7 +519,7 @@ def cli_device_login():
         font-size: 0.85rem; 
         opacity: 0.9; 
       }
-      .content { padding: 16px; }
+      .content { padding: 20px; }
       .spinner { 
         display: inline-block; 
         width: 24px; 
@@ -542,16 +543,16 @@ def cli_device_login():
       .output { 
         background: #1e293b; 
         color: #e2e8f0; 
-        padding: 12px; 
-        border-radius: 6px; 
+        padding: 16px; 
+        border-radius: 8px; 
         font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace; 
         white-space: pre-wrap; 
-        max-height: 280px; 
+        height: 500px; 
         overflow-y: auto; 
-        margin-top: 8px;
-        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
-        font-size: 0.7rem;
-        line-height: 1.1;
+        margin-top: 10px;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+        font-size: 0.8rem;
+        line-height: 1.3;
       }
     </style>
   </head>
