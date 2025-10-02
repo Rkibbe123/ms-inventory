@@ -489,16 +489,16 @@ def cli_device_login():
       body { 
         font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
         margin: 0; 
-        padding: 10px; 
+        padding: 15px; 
         background: linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #0ea5e9 100%);
         min-height: 100vh;
       }
       .container { 
-        max-width: 650px; 
+        max-width: 700px; 
         margin: 0 auto; 
         background: white; 
-        border-radius: 10px; 
-        box-shadow: 0 12px 16px -5px rgba(0, 0, 0, 0.1), 0 6px 6px -5px rgba(0, 0, 0, 0.04);
+        border-radius: 12px; 
+        box-shadow: 0 15px 20px -5px rgba(0, 0, 0, 0.1), 0 8px 8px -5px rgba(0, 0, 0, 0.04);
         overflow: hidden;
       }
       .header { 
@@ -542,11 +542,11 @@ def cli_device_login():
       .output { 
         background: #1e293b; 
         color: #e2e8f0; 
-        padding: 8px; 
-        border-radius: 4px; 
+        padding: 12px; 
+        border-radius: 6px; 
         font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace; 
         white-space: pre-wrap; 
-        max-height: 140px; 
+        max-height: 280px; 
         overflow-y: auto; 
         margin-top: 8px;
         box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
@@ -578,22 +578,6 @@ def cli_device_login():
       
       <script>
         const jobId = ''' + f"'{job_id}'" + ''';
-        function checkOutput() {
-          fetch(`/job-status/${jobId}`)
-            .then(response => response.json())
-            .then(data => {
-              const outputElement = document.getElementById('output');
-              outputElement.innerHTML = data.output || '';
-              outputElement.scrollTop = outputElement.scrollHeight;
-              
-              if (data.status !== 'running') {
-                clearInterval(interval);
-                if (data.status === 'completed') {
-                  window.location.href = '/outputs';
-                }
-              }
-            });
-        }
         let checkCount = 0;
         const maxChecks = 150; // 5 minutes (150 * 2 seconds)
         
@@ -619,17 +603,10 @@ def cli_device_login():
                 document.getElementById('manual-nav').style.display = 'block';
                 const spinner = document.querySelector('.spinner');
                 if (spinner) spinner.style.display = 'none';
-              } else if (checkCount > 30) {
-                // Show manual nav after 1 minute as backup
-                document.getElementById('manual-nav').style.display = 'block';
               }
             })
             .catch(error => {
               console.error('Error checking job status:', error);
-              if (checkCount > 10) {
-                clearInterval(interval);
-                document.getElementById('manual-nav').style.display = 'block';
-              }
             });
         }
         
@@ -790,22 +767,51 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
         "    Write-Host \"Using Tenant: $tenantId\" -ForegroundColor Cyan",
         "    Write-Host \"Using Subscription: $subscriptionId\" -ForegroundColor Cyan",
         "    ",
-        "    # Execute ARI with explicit tenant to avoid interactive prompts",
-        "    Invoke-ARI -ReportDir $reportDir -ReportName $reportName -TenantID $tenantId -SubscriptionID $subscriptionId -SkipDiagram -ErrorAction Stop",
+        "    # Execute ARI with simplified parameters using splatting to avoid PowerShell issues",
+        "    Write-Host 'Preparing ARI execution parameters...' -ForegroundColor Yellow",
+        "    $ariParams = @{",
+        "        'ReportDir' = $reportDir",
+        "        'ReportName' = $reportName", 
+        "        'TenantID' = $tenantId",
+        "        'SubscriptionID' = $subscriptionId",
+        "        'SkipDiagram' = $true",
+        "    }",
+        "    ",
+        "    Write-Host 'ARI Parameters:' -ForegroundColor Cyan",
+        "    $ariParams.GetEnumerator() | Sort-Object Name | Format-Table Name, Value -AutoSize",
+        "    ",
+        "    # Use parameter splatting to avoid parsing issues",
+        "    Write-Host 'Executing Invoke-ARI...' -ForegroundColor Yellow",
+        "    Invoke-ARI @ariParams -ErrorAction Stop",
+        "    ",
         "    Write-Host 'Azure Resource Inventory completed successfully!' -ForegroundColor Green",
         "    ",
         "    # List generated files",
         "    Write-Host 'Generated files:' -ForegroundColor Green",
         "    if (Test-Path $reportDir) {",
-        "        Get-ChildItem -Path $reportDir -File | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize",
+        "        $files = Get-ChildItem -Path $reportDir -File -ErrorAction SilentlyContinue",
+        "        if ($files) {",
+        "            $files | Select-Object Name, @{Name='Size(MB)';Expression={[math]::Round($_.Length/1MB,2)}}, LastWriteTime | Format-Table -AutoSize",
+        "        } else {",
+        "            Write-Warning 'No files found in output directory'",
+        "        }",
         "    } else {",
         "        Write-Warning 'Output directory not found!'",
         "    }",
         "} catch {",
         "    Write-Error \"ARI execution failed: $($_.Exception.Message)\"",
-        "    Write-Host 'Full error details:' -ForegroundColor Red",
-        "    Write-Host $_.Exception.ToString() -ForegroundColor Red",
-        "    exit 1",
+        "    Write-Host 'Full error details:' -ForegroundColor Red", 
+        "    Write-Host ($_.Exception | Format-List * | Out-String) -ForegroundColor Red",
+        "    ",
+        "    # Try fallback execution with minimal parameters",
+        "    Write-Host 'Attempting fallback execution...' -ForegroundColor Yellow",
+        "    try {",
+        "        Invoke-ARI -ReportDir $reportDir -TenantID $tenantId -SkipDiagram -ErrorAction Stop",
+        "        Write-Host 'Fallback execution completed!' -ForegroundColor Green",
+        "    } catch {",
+        "        Write-Error \"Fallback execution also failed: $($_.Exception.Message)\"",
+        "        exit 1",
+        "    }",
         "}",
         "EOF",
         "",
