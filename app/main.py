@@ -257,18 +257,43 @@ def enhance_device_code_output(line):
     # Look for device code patterns and enhance them
     enhanced = line
     
-    # Device code pattern matching
-    if "To sign in, use a web browser" in line:
-        enhanced = f'<div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 10px 0;"><strong style="color: #1976d2;">🌐 {line.strip()}</strong></div>'
-    elif "https://microsoft.com/devicelogin" in line:
+    # Check for the full device login message that contains both URL and code
+    if "To sign in, use a web browser to open the page" in line and "https://microsoft.com/devicelogin" in line:
+        # Extract the device code from the line (format: various patterns like FAZ9X9YTW)
+        code_match = re.search(r'enter the code ([A-Z0-9]{6,12}) to authenticate', line)
+        url = "https://microsoft.com/devicelogin"
+        
+        if code_match:
+            code = code_match.group(1)
+            enhanced = f'''<div style="background: #e3f2fd; padding: 20px; border-radius: 12px; margin: 15px 0; border: 2px solid #2196f3;">
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <strong style="color: #1976d2; font-size: 18px;">🌐 Azure Device Authentication Required</strong>
+                </div>
+                
+                <div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin: 15px 0; text-align: center;">
+                    <strong style="color: #2e7d32; display: block; margin-bottom: 10px;">🔗 Step 1: Click to open login page</strong>
+                    <a href="{url}" target="_blank" style="display: inline-block; background: #4caf50; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; margin: 5px;">{url}</a>
+                </div>
+                
+                <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin: 15px 0; text-align: center;">
+                    <strong style="color: #856404; display: block; margin-bottom: 15px;">🔑 Step 2: Enter this code</strong>
+                    <div style="background: #ffeb3b; padding: 15px 25px; font-size: 28px; font-weight: bold; border-radius: 8px; color: #f57f17; font-family: monospace; letter-spacing: 3px; margin: 10px 0; display: inline-block;">{code}</div>
+                    <br>
+                    <button onclick="navigator.clipboard.writeText('{code}'); this.innerHTML='✅ Copied!'; setTimeout(() => this.innerHTML='📋 Copy Code', 2000);" style="margin-top: 15px; background: #2196f3; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 14px;">📋 Copy Code</button>
+                </div>
+            </div>'''
+        else:
+            enhanced = f'<div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 10px 0;"><strong style="color: #1976d2;">🌐 {line.strip()}</strong></div>'
+    elif "https://microsoft.com/devicelogin" in line and "To sign in" not in line:
+        # Standalone URL
         url = "https://microsoft.com/devicelogin"
         enhanced = f'<div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin: 15px 0; text-align: center;"><strong style="color: #2e7d32; display: block; margin-bottom: 10px;">🔗 Click to open login page:</strong><a href="{url}" target="_blank" style="display: inline-block; background: #4caf50; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;">{url}</a></div>'
-    elif re.search(r'\b[A-Z0-9]{4}-[A-Z0-9]{4}\b', line):
-        # Device code pattern like "XXXX-XXXX"
-        match = re.search(r'\b([A-Z0-9]{4}-[A-Z0-9]{4})\b', line)
+    elif re.search(r'\b[A-Z0-9]{6,12}\b', line) and ("code" in line.lower() or "enter" in line.lower()):
+        # Standalone device code
+        match = re.search(r'\b([A-Z0-9]{6,12})\b', line)
         if match:
             code = match.group(1)
-            enhanced = f'<div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin: 15px 0; text-align: center;"><strong style="color: #856404; display: block; margin-bottom: 10px;">🔑 Your Device Code:</strong><span style="background: #ffeb3b; padding: 10px 20px; font-size: 24px; font-weight: bold; border-radius: 6px; color: #f57f17; font-family: monospace; letter-spacing: 2px;">{code}</span><br><button onclick="navigator.clipboard.writeText(\'{code}\'); alert(\'Code copied!\');" style="margin-top: 10px; background: #2196f3; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;">📋 Copy Code</button></div>'
+            enhanced = f'<div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin: 15px 0; text-align: center;"><strong style="color: #856404; display: block; margin-bottom: 10px;">🔑 Your Device Code:</strong><span style="background: #ffeb3b; padding: 10px 20px; font-size: 24px; font-weight: bold; border-radius: 6px; color: #f57f17; font-family: monospace; letter-spacing: 2px;">{code}</span><br><button onclick="navigator.clipboard.writeText(\'{code}\'); this.innerHTML=\'✅ Copied!\'; setTimeout(() => this.innerHTML=\'📋 Copy Code\', 2000);" style="margin-top: 10px; background: #2196f3; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;">📋 Copy Code</button></div>'
         else:
             enhanced = line + "<br>"
     elif "Continuing will" in line or "complete the authentication" in line:
@@ -303,7 +328,7 @@ def cli_device_login():
         min-height: 100vh;
       }
       .container { 
-        max-width: 800px; 
+        max-width: 700px; 
         margin: 0 auto; 
         background: white; 
         border-radius: 16px; 
@@ -313,30 +338,31 @@ def cli_device_login():
       .header { 
         background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%); 
         color: white; 
-        padding: 40px; 
+        padding: 25px; 
         text-align: center; 
       }
       .header h1 { 
         margin: 0; 
-        font-size: 2.5rem; 
+        font-size: 2rem; 
         font-weight: 700; 
         text-shadow: 0 2px 4px rgba(0,0,0,0.3); 
       }
       .header p { 
-        margin: 10px 0 0 0; 
-        font-size: 1.2rem; 
+        margin: 8px 0 0 0; 
+        font-size: 1rem; 
         opacity: 0.9; 
       }
-      .content { padding: 40px; }
+      .content { padding: 25px; }
       .warning { 
         background: #f0f9ff; 
-        padding: 20px; 
-        border-radius: 12px; 
-        margin-bottom: 30px; 
-        border-left: 5px solid #0078d4; 
+        padding: 15px; 
+        border-radius: 8px; 
+        margin-bottom: 20px; 
+        border-left: 4px solid #0078d4; 
+        font-size: 0.9rem;
       }
       .warning strong { color: #0078d4; }
-      .form-group { margin-bottom: 25px; }
+      .form-group { margin-bottom: 18px; }
       label { 
         display: block; 
         margin-bottom: 8px; 
@@ -345,29 +371,29 @@ def cli_device_login():
       }
       input { 
         width: 100%; 
-        padding: 12px 16px; 
+        padding: 10px 14px; 
         border: 2px solid #e2e8f0; 
-        border-radius: 8px; 
-        font-size: 1rem;
+        border-radius: 6px; 
+        font-size: 0.95rem;
         transition: border-color 0.2s;
       }
       input:focus { 
         outline: none;
         border-color: #0078d4;
-        box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
+        box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.1);
       }
       .run-button { 
         display: inline-block; 
         background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); 
         color: white; 
-        padding: 16px 32px; 
-        font-size: 1.1rem; 
+        padding: 12px 24px; 
+        font-size: 1rem; 
         font-weight: 700; 
         border: none; 
-        border-radius: 12px; 
+        border-radius: 8px; 
         cursor: pointer; 
         text-decoration: none; 
-        box-shadow: 0 10px 15px -3px rgba(220, 38, 38, 0.3), 0 4px 6px -2px rgba(220, 38, 38, 0.05);
+        box-shadow: 0 8px 12px -3px rgba(220, 38, 38, 0.3), 0 4px 6px -2px rgba(220, 38, 38, 0.05);
         transition: all 0.3s ease;
         text-transform: uppercase;
         letter-spacing: 1px;
@@ -463,36 +489,36 @@ def cli_device_login():
       body { 
         font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
         margin: 0; 
-        padding: 40px; 
+        padding: 10px; 
         background: linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #0ea5e9 100%);
         min-height: 100vh;
       }
       .container { 
-        max-width: 900px; 
+        max-width: 650px; 
         margin: 0 auto; 
         background: white; 
-        border-radius: 16px; 
-        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        border-radius: 10px; 
+        box-shadow: 0 12px 16px -5px rgba(0, 0, 0, 0.1), 0 6px 6px -5px rgba(0, 0, 0, 0.04);
         overflow: hidden;
       }
       .header { 
         background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%); 
         color: white; 
-        padding: 40px; 
+        padding: 16px; 
         text-align: center; 
       }
       .header h1 { 
         margin: 0; 
-        font-size: 2.5rem; 
+        font-size: 1.6rem; 
         font-weight: 700; 
         text-shadow: 0 2px 4px rgba(0,0,0,0.3); 
       }
       .header p { 
-        margin: 10px 0 0 0; 
-        font-size: 1.2rem; 
+        margin: 4px 0 0 0; 
+        font-size: 0.85rem; 
         opacity: 0.9; 
       }
-      .content { padding: 40px; }
+      .content { padding: 16px; }
       .spinner { 
         display: inline-block; 
         width: 24px; 
@@ -506,24 +532,26 @@ def cli_device_login():
       @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
       .status {
         background: #f0f9ff;
-        padding: 20px;
-        border-radius: 12px;
-        margin-bottom: 20px;
-        border-left: 5px solid #0078d4;
-        font-size: 1.1rem;
+        padding: 10px;
+        border-radius: 6px;
+        margin-bottom: 10px;
+        border-left: 3px solid #0078d4;
+        font-size: 0.9rem;
         font-weight: 500;
       }
       .output { 
         background: #1e293b; 
         color: #e2e8f0; 
-        padding: 20px; 
-        border-radius: 12px; 
+        padding: 8px; 
+        border-radius: 4px; 
         font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace; 
         white-space: pre-wrap; 
-        max-height: 500px; 
+        max-height: 140px; 
         overflow-y: auto; 
-        margin-top: 20px;
-        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+        margin-top: 8px;
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+        font-size: 0.7rem;
+        line-height: 1.1;
       }
     </style>
   </head>
@@ -540,6 +568,13 @@ def cli_device_login():
           Running Azure CLI device login... Watch for authentication instructions!
         </div>
         <div id="output" class="output"></div>
+        
+        <div id="manual-nav" style="display: none; text-align: center; margin-top: 20px; padding: 15px; background: #e8f5e8; border-radius: 8px;">
+          <p style="margin: 0 0 10px 0; color: #2e7d32; font-weight: 500;">🎉 Process may have completed! If not redirected automatically:</p>
+          <a href="/outputs" style="display: inline-block; background: #4caf50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">📁 View Generated Reports</a>
+          <span style="margin: 0 10px;">|</span>
+          <a href="/" style="display: inline-block; background: #2196f3; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">🏠 Back to Home</a>
+        </div>
       
       <script>
         const jobId = ''' + f"'{job_id}'" + ''';
@@ -559,6 +594,45 @@ def cli_device_login():
               }
             });
         }
+        let checkCount = 0;
+        const maxChecks = 150; // 5 minutes (150 * 2 seconds)
+        
+        function checkOutput() {
+          checkCount++;
+          fetch(`/job-status/${jobId}`)
+            .then(response => response.json())
+            .then(data => {
+              console.log('Job status:', data.status, 'Check:', checkCount);
+              const outputElement = document.getElementById('output');
+              outputElement.innerHTML = data.output || '';
+              outputElement.scrollTop = outputElement.scrollHeight;
+              
+              if (data.status === 'completed') {
+                clearInterval(interval);
+                console.log('Job completed, redirecting to outputs...');
+                setTimeout(() => {
+                  window.location.href = '/outputs';
+                }, 2000);
+              } else if (data.status === 'failed' || checkCount >= maxChecks) {
+                clearInterval(interval);
+                console.log('Job failed or timed out, showing manual navigation');
+                document.getElementById('manual-nav').style.display = 'block';
+                const spinner = document.querySelector('.spinner');
+                if (spinner) spinner.style.display = 'none';
+              } else if (checkCount > 30) {
+                // Show manual nav after 1 minute as backup
+                document.getElementById('manual-nav').style.display = 'block';
+              }
+            })
+            .catch(error => {
+              console.error('Error checking job status:', error);
+              if (checkCount > 10) {
+                clearInterval(interval);
+                document.getElementById('manual-nav').style.display = 'block';
+              }
+            });
+        }
+        
         const interval = setInterval(checkOutput, 2000);
         checkOutput();
       </script>
@@ -631,39 +705,113 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
         "echo 'Starting Azure Resource Inventory execution...'",
         "echo '================================================='",
         "",
-        "# Create PowerShell script file to avoid complex escaping",
+        "# Create PowerShell script file with robust error handling",
         "cat > /tmp/run_ari.ps1 << 'EOF'",
-        "Write-Host 'Importing Azure Resource Inventory module...' -ForegroundColor Green",
-        "Import-Module AzureResourceInventory -Force",
+        "$ErrorActionPreference = 'Stop'",
+        "",
+        "Write-Host 'Setting up Azure Resource Inventory module...' -ForegroundColor Green",
+        "try {",
+        "    # Check if module exists in current directory first",
+        "    if (Test-Path './AzureResourceInventory.psm1') {",
+        "        Import-Module './AzureResourceInventory.psm1' -Force -ErrorAction Stop",
+        "        Write-Host 'Local module imported successfully!' -ForegroundColor Green",
+        "    } elseif (Get-Module -ListAvailable -Name AzureResourceInventory) {",
+        "        Import-Module AzureResourceInventory -Force -ErrorAction Stop",
+        "        Write-Host 'Installed module imported successfully!' -ForegroundColor Green",
+        "    } else {",
+        "        Write-Host 'Installing AzureResourceInventory from PowerShell Gallery...' -ForegroundColor Yellow",
+        "        Install-Module -Name AzureResourceInventory -Force -Scope CurrentUser -ErrorAction Stop",
+        "        Import-Module AzureResourceInventory -Force -ErrorAction Stop",
+        "        Write-Host 'Module installed and imported successfully!' -ForegroundColor Green",
+        "    }",
+        "} catch {",
+        "    Write-Error \"Failed to setup AzureResourceInventory module: $($_.Exception.Message)\"",
+        "    Write-Host 'Trying alternative approach...' -ForegroundColor Yellow",
+        "    try {",
+        "        # Fallback: try to run without explicit module import",
+        "        Write-Host 'Attempting direct execution...' -ForegroundColor Cyan",
+        "    } catch {",
+        "        Write-Error 'All module setup attempts failed'",
+        "        exit 1",
+        "    }",
+        "}",
         "",
         "Write-Host 'Connecting to Azure using CLI credentials...' -ForegroundColor Green",
-        "Connect-AzAccount -UseDeviceAuthentication:$false -Force",
-        ""
+        "try {",
+        "    # Import Azure CLI credentials into PowerShell",
+        "    $azContext = az account show --output json | ConvertFrom-Json",
+        "    if ($azContext) {",
+        "        Write-Host \"Found Azure CLI context for: $($azContext.name)\" -ForegroundColor Green",
+        "        # Connect using Access Token from CLI",
+        "        $accessToken = az account get-access-token --query accessToken --output tsv",
+        "        Connect-AzAccount -AccessToken $accessToken -AccountId $azContext.user.name -ErrorAction Stop",
+        "        Write-Host 'Connected to Azure successfully using CLI credentials!' -ForegroundColor Green",
+        "    } else {",
+        "        throw 'No Azure CLI context found'",
+        "    }",
+        "} catch {",
+        "    Write-Error \"Failed to connect to Azure: $($_.Exception.Message)\"",
+        "    exit 1",
+        "}"
     ])
     
     # Add subscription setting if specified
     if subscription:
-        script_parts.append(f"Set-AzContext -SubscriptionId '{subscription}'")
+        script_parts.extend([
+            "",
+            "Write-Host 'Setting subscription context...' -ForegroundColor Yellow",
+            "try {",
+            f"    Set-AzContext -SubscriptionId '{subscription}' -ErrorAction Stop",
+            "    Write-Host 'Subscription context set successfully!' -ForegroundColor Green",
+            "} catch {",
+            "    Write-Error 'Failed to set subscription context: $_'",
+            "    exit 1",
+            "}"
+        ])
     
-    # Add the ARI execution
+    # Add the ARI execution with better error handling
     script_parts.extend([
         "",
         f"$reportDir = '{output_dir}'",
         "$reportName = 'AzureResourceInventory_' + (Get-Date -Format 'yyyyMMdd_HHmmss')",
         "",
+        "Write-Host 'Creating output directory...' -ForegroundColor Yellow",
+        "New-Item -Path $reportDir -ItemType Directory -Force | Out-Null",
+        "",
         "Write-Host 'Starting Invoke-ARI execution...' -ForegroundColor Yellow",
+        "Write-Host \"Report Directory: $reportDir\" -ForegroundColor Cyan",
+        "Write-Host \"Report Name: $reportName\" -ForegroundColor Cyan",
+        "",
         "try {",
-        "    Invoke-ARI -ReportDir $reportDir -ReportName $reportName -SkipDiagram -IncludeTags -Verbose",
+        "    # Get current tenant and subscription info",
+        "    $context = Get-AzContext",
+        "    $tenantId = $context.Tenant.Id",
+        "    $subscriptionId = $context.Subscription.Id",
+        "    Write-Host \"Using Tenant: $tenantId\" -ForegroundColor Cyan",
+        "    Write-Host \"Using Subscription: $subscriptionId\" -ForegroundColor Cyan",
+        "    ",
+        "    # Execute ARI with explicit tenant to avoid interactive prompts",
+        "    Invoke-ARI -ReportDir $reportDir -ReportName $reportName -TenantID $tenantId -SubscriptionID $subscriptionId -SkipDiagram -ErrorAction Stop",
         "    Write-Host 'Azure Resource Inventory completed successfully!' -ForegroundColor Green",
-        "    Get-ChildItem -Path $reportDir | Format-Table Name, Length, LastWriteTime",
+        "    ",
+        "    # List generated files",
+        "    Write-Host 'Generated files:' -ForegroundColor Green",
+        "    if (Test-Path $reportDir) {",
+        "        Get-ChildItem -Path $reportDir -File | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize",
+        "    } else {",
+        "        Write-Warning 'Output directory not found!'",
+        "    }",
         "} catch {",
-        "    Write-Error \"ARI execution failed: $_\"",
-        "    throw",
+        "    Write-Error \"ARI execution failed: $($_.Exception.Message)\"",
+        "    Write-Host 'Full error details:' -ForegroundColor Red",
+        "    Write-Host $_.Exception.ToString() -ForegroundColor Red",
+        "    exit 1",
         "}",
         "EOF",
         "",
-        "# Execute the PowerShell script",
-        "pwsh -NoProfile -File /tmp/run_ari.ps1",
+        "# Execute the PowerShell script with verbose output",
+        "echo 'Executing PowerShell script...'",
+        "pwsh -NoProfile -ExecutionPolicy Bypass -File /tmp/run_ari.ps1",
         "",
         "echo 'Process completed! Check the outputs directory for your reports.'"
     ])
