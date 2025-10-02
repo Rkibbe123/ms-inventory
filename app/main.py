@@ -824,8 +824,6 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
     ])
     
     return "\n".join(script_parts)
-    
-    return "\n".join(script_parts)
 
 
 def run_cli_job(job_id, script):
