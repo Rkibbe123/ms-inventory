@@ -265,21 +265,21 @@ def enhance_device_code_output(line):
         
         if code_match:
             code = code_match.group(1)
-            enhanced = f'''<div style="background: #e3f2fd; padding: 20px; border-radius: 12px; margin: 15px 0; border: 2px solid #2196f3;">
-                <div style="text-align: center; margin-bottom: 20px;">
-                    <strong style="color: #1976d2; font-size: 18px;">🌐 Azure Device Authentication Required</strong>
+            enhanced = f'''<div style="background: #e3f2fd; padding: 15px; border-radius: 10px; margin: 10px 0; border: 2px solid #2196f3; max-width: 600px; margin-left: auto; margin-right: auto;">
+                <div style="text-align: center; margin-bottom: 15px;">
+                    <strong style="color: #1976d2; font-size: 16px;">🌐 Azure Device Authentication Required</strong>
                 </div>
                 
-                <div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin: 15px 0; text-align: center;">
-                    <strong style="color: #2e7d32; display: block; margin-bottom: 10px;">🔗 Step 1: Click to open login page</strong>
-                    <a href="{url}" target="_blank" style="display: inline-block; background: #4caf50; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; margin: 5px;">{url}</a>
+                <div style="background: #e8f5e8; padding: 15px; border-radius: 6px; margin: 10px 0; text-align: center;">
+                    <strong style="color: #2e7d32; display: block; margin-bottom: 8px;">🔗 Step 1: Click to open login page</strong>
+                    <a href="{url}" target="_blank" style="display: inline-block; background: #4caf50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; margin: 3px;">{url}</a>
                 </div>
                 
-                <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin: 15px 0; text-align: center;">
-                    <strong style="color: #856404; display: block; margin-bottom: 15px;">🔑 Step 2: Enter this code</strong>
-                    <div style="background: #ffeb3b; padding: 15px 25px; font-size: 28px; font-weight: bold; border-radius: 8px; color: #f57f17; font-family: monospace; letter-spacing: 3px; margin: 10px 0; display: inline-block;">{code}</div>
+                <div style="background: #fff3cd; padding: 5px; border-radius: 6px; margin: 10px 0; text-align: center;">
+                    <strong style="color: #856404; display: block; margin-bottom: 8px;">🔑 Step 2: Enter this code</strong>
+                    <div style="background: #ffeb3b; padding: 8px 15px; font-size: 24px; font-weight: bold; border-radius: 6px; color: #f57f17; font-family: monospace; letter-spacing: 2px; margin: 5px 0; display: inline-block;">{code}</div>
                     <br>
-                    <button onclick="navigator.clipboard.writeText('{code}'); this.innerHTML='✅ Copied!'; setTimeout(() => this.innerHTML='📋 Copy Code', 2000);" style="margin-top: 15px; background: #2196f3; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 14px;">📋 Copy Code</button>
+                    <button onclick="navigator.clipboard.writeText('{code}'); this.innerHTML='✅ Copied!'; setTimeout(() => this.innerHTML='📋 Copy Code', 2000);" style="margin-top: 8px; background: #2196f3; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px;">📋 Copy Code</button>
                 </div>
             </div>'''
         else:
@@ -494,32 +494,32 @@ def cli_device_login():
         min-height: 100vh;
       }
       .container { 
-        max-width: 1000px; 
+        max-width: 600px; 
         margin: 0 auto; 
         background: white; 
-        border-radius: 12px; 
+        border-radius: 10px; 
         box-shadow: 0 15px 20px -5px rgba(0, 0, 0, 0.1), 0 8px 8px -5px rgba(0, 0, 0, 0.04);
         overflow: hidden;
-        min-height: 85vh;
+        min-height: 90vh;
       }
       .header { 
         background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%); 
         color: white; 
-        padding: 16px; 
+        padding: 12px; 
         text-align: center; 
       }
       .header h1 { 
         margin: 0; 
-        font-size: 1.6rem; 
+        font-size: 1.4rem; 
         font-weight: 700; 
         text-shadow: 0 2px 4px rgba(0,0,0,0.3); 
       }
       .header p { 
-        margin: 4px 0 0 0; 
-        font-size: 0.85rem; 
+        margin: 3px 0 0 0; 
+        font-size: 0.8rem; 
         opacity: 0.9; 
       }
-      .content { padding: 20px; }
+      .content { padding: 15px; }
       .spinner { 
         display: inline-block; 
         width: 24px; 
@@ -543,16 +543,16 @@ def cli_device_login():
       .output { 
         background: #1e293b; 
         color: #e2e8f0; 
-        padding: 16px; 
-        border-radius: 8px; 
+        padding: 12px; 
+        border-radius: 6px; 
         font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace; 
         white-space: pre-wrap; 
-        height: 500px; 
+        height: 600px; 
         overflow-y: auto; 
-        margin-top: 10px;
+        margin-top: 8px;
         box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
-        font-size: 0.8rem;
-        line-height: 1.3;
+        font-size: 0.75rem;
+        line-height: 1.2;
       }
     </style>
   </head>
