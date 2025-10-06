@@ -7,12 +7,78 @@ import uuid
 import time
 from datetime import datetime
 import re
+import json
+import pickle
 
 
 app = Flask(__name__)
 
 # Global jobs dictionary to track running processes
 jobs = {}
+
+# Job persistence directory - use same volume as ARI output for persistence
+JOBS_DIR = "/data/AzureResourceInventory/.jobs"
+os.makedirs(JOBS_DIR, exist_ok=True)
+
+def save_job(job_id, job_data):
+    """Save job data to disk for persistence"""
+    try:
+        job_file = os.path.join(JOBS_DIR, f"{job_id}.json")
+        # Convert datetime objects to strings for JSON serialization
+        serializable_data = {
+            'status': job_data.get('status'),
+            'output': job_data.get('output', ''),
+            'created_at': job_data.get('created_at').isoformat() if 'created_at' in job_data else None
+        }
+        with open(job_file, 'w') as f:
+            json.dump(serializable_data, f)
+    except Exception as e:
+        print(f"Error saving job {job_id}: {e}")
+
+def load_job(job_id):
+    """Load job data from disk"""
+    try:
+        job_file = os.path.join(JOBS_DIR, f"{job_id}.json")
+        if os.path.exists(job_file):
+            with open(job_file, 'r') as f:
+                data = json.load(f)
+                # Convert ISO format strings back to datetime
+                if data.get('created_at'):
+                    data['created_at'] = datetime.fromisoformat(data['created_at'])
+                return data
+    except Exception as e:
+        print(f"Error loading job {job_id}: {e}")
+    return None
+
+def load_all_jobs():
+    """Load all persisted jobs on startup"""
+    try:
+        print(f"Loading jobs from: {JOBS_DIR}")
+        if not os.path.exists(JOBS_DIR):
+            print(f"Jobs directory does not exist yet: {JOBS_DIR}")
+            return
+        
+        job_files = [f for f in os.listdir(JOBS_DIR) if f.endswith('.json')]
+        print(f"Found {len(job_files)} job files to restore")
+        
+        for filename in job_files:
+            job_id = filename[:-5]  # Remove .json extension
+            job_data = load_job(job_id)
+            if job_data:
+                jobs[job_id] = job_data
+                print(f"Restored job: {job_id} with status: {job_data.get('status')}")
+        
+        print(f"Total jobs in memory after restore: {len(jobs)}")
+    except Exception as e:
+        print(f"Error loading jobs: {e}")
+        import traceback
+        print(traceback.format_exc())
+
+# Load existing jobs on startup
+print("=" * 50)
+print("Flask app starting - loading persisted jobs...")
+load_all_jobs()
+print("=" * 50)
 
 
 INDEX_HTML = """
@@ -746,6 +812,9 @@ def cli_device_login():
         'process': None
     }
     
+    # Save job to disk for persistence
+    save_job(job_id, jobs[job_id])
+    
     # Start CLI job
     thread = threading.Thread(target=run_cli_job, args=(job_id, cli_script))
     thread.daemon = True
@@ -1049,7 +1118,16 @@ def cli_device_login():
 @app.route("/job-status/<job_id>")
 def get_job_status(job_id):
     """Get the status and output of a running job"""
-    if job_id not in jobs:
+    # Try to get from memory first
+    job = jobs.get(job_id)
+    
+    # If not in memory, try loading from disk
+    if not job:
+        job = load_job(job_id)
+        if job:
+            jobs[job_id] = job  # Restore to memory
+    
+    if not job:
         # Instead of 404, return a "not found" status to prevent log spam
         return jsonify({
             'status': 'not_found',
@@ -1057,7 +1135,6 @@ def get_job_status(job_id):
             'created_at': None
         }), 200
     
-    job = jobs[job_id]
     return jsonify({
         'status': job['status'],
         'output': job['output'],
@@ -1287,112 +1364,18 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
         "    ",
         "    # Execute ARI with enhanced progress tracking and error detection",
         "    $startTime = Get-Date",
-        "    $lastProgressTime = $startTime",
-        "    $progressCheckInterval = 300  # Check progress every 5 minutes",
-        "    $maxSilentMinutes = 15        # Maximum time without progress before error",
-        "    $maxTotalMinutes = 45         # Maximum total execution time",
         "    ",
-        "    Write-Host \"🚀 Starting ARI execution with monitoring...\" -ForegroundColor Green",
-        "    Write-Host \"⏰ Max execution time: $maxTotalMinutes minutes\" -ForegroundColor Yellow",
-        "    Write-Host \"🔍 Progress check interval: $($progressCheckInterval/60) minutes\" -ForegroundColor Yellow",
-        "    Write-Host \"⚠️  Max silent time: $maxSilentMinutes minutes\" -ForegroundColor Yellow",
+        "    Write-Host \"🚀 Starting ARI execution...\" -ForegroundColor Green",
+        "    Write-Host \"⏰ This may take 10-45 minutes depending on your environment size\" -ForegroundColor Yellow",
+        "    Write-Host \"📊 The process will generate reports in: $reportDir\" -ForegroundColor Cyan",
         "    Write-Host ''",
         "    ",
-        "    # Start ARI in a background job for monitoring",
-        "    $ariJob = Start-Job -ScriptBlock {",
-        "        param($expression, $reportDir)",
-        "        try {",
-        "            Write-Host \"Job started: $expression\"",
-        "            $result = Invoke-Expression $expression",
-        "            Write-Host \"Job completed successfully\"",
-        "            return @{ Success = $true; Result = $result }",
-        "        } catch {",
-        "            Write-Host \"Job failed: $($_.Exception.Message)\"",
-        "            return @{ Success = $false; Error = $_.Exception.Message }",
-        "        }",
-        "    } -ArgumentList $expression, $reportDir",
-        "    ",
-        "    # Monitor the job with progress tracking",
-        "    $monitoringActive = $true",
-        "    $lastFileCount = 0",
-        "    $consecutiveNoProgress = 0",
-        "    ",
-        "    while ($monitoringActive) {",
-        "        $elapsed = (Get-Date) - $startTime",
-        "        $elapsedMinutes = [math]::Round($elapsed.TotalMinutes, 1)",
-        "        ",
-        "        # Check if job is still running",
-        "        if ($ariJob.State -eq 'Completed') {",
-        "            $jobResult = Receive-Job -Job $ariJob",
-        "            Remove-Job -Job $ariJob",
-        "            if ($jobResult.Success) {",
-        "                Write-Host \"✅ ARI execution completed successfully in $elapsedMinutes minutes!\" -ForegroundColor Green",
-        "            } else {",
-        "                throw \"ARI execution failed: $($jobResult.Error)\"",
-        "            }",
-        "            $monitoringActive = $false",
-        "            break",
-        "        }",
-        "        ",
-        "        # Check for timeout",
-        "        if ($elapsed.TotalMinutes -gt $maxTotalMinutes) {",
-        "            Write-Host \"❌ TIMEOUT: Process exceeded $maxTotalMinutes minutes\" -ForegroundColor Red",
-        "            Stop-Job -Job $ariJob",
-        "            Remove-Job -Job $ariJob",
-        "            throw \"ARI execution timed out after $maxTotalMinutes minutes. This may indicate a problem with your Azure environment or network connectivity.\"",
-        "        }",
-        "        ",
-        "        # Check for progress (file creation)",
-        "        $currentFileCount = 0",
-        "        if (Test-Path $reportDir) {",
-        "            $currentFiles = @(Get-ChildItem -Path $reportDir -File -ErrorAction SilentlyContinue)",
-        "            $currentFileCount = $currentFiles.Count",
-        "        }",
-        "        ",
-        "        # Progress detection",
-        "        if ($currentFileCount -gt $lastFileCount) {",
-        "            $lastProgressTime = Get-Date",
-        "            $consecutiveNoProgress = 0",
-        "            Write-Host \"📈 Progress detected: $currentFileCount files created (${elapsedMinutes}min elapsed)\" -ForegroundColor Green",
-        "            $lastFileCount = $currentFileCount",
-        "        } else {",
-        "            $timeSinceProgress = (Get-Date) - $lastProgressTime",
-        "            if ($timeSinceProgress.TotalMinutes -gt $maxSilentMinutes) {",
-        "                $consecutiveNoProgress++",
-        "                Write-Host \"⚠️  WARNING: No progress for $($timeSinceProgress.TotalMinutes.ToString('0.0')) minutes\" -ForegroundColor Yellow",
-        "                ",
-        "                # If no progress for too long and no files created, consider it stuck",
-        "                if ($currentFileCount -eq 0 -and $timeSinceProgress.TotalMinutes -gt ($maxSilentMinutes + 5)) {",
-        "                    Write-Host \"❌ ERROR: No files created and no progress for $($timeSinceProgress.TotalMinutes.ToString('0.0')) minutes\" -ForegroundColor Red",
-        "                    Write-Host \"This usually indicates:\" -ForegroundColor Yellow",
-        "                    Write-Host \"  • Network connectivity issues\" -ForegroundColor Yellow", 
-        "                    Write-Host \"  • Azure API throttling\" -ForegroundColor Yellow",
-        "                    Write-Host \"  • Authentication token expired\" -ForegroundColor Yellow",
-        "                    Write-Host \"  • Very large subscription with complex resources\" -ForegroundColor Yellow",
-        "                    Stop-Job -Job $ariJob",
-        "                    Remove-Job -Job $ariJob",
-        "                    throw \"ARI process appears stuck - no progress for $($timeSinceProgress.TotalMinutes.ToString('0.0')) minutes\"",
-        "                }",
-        "            }",
-        "        }",
-        "        ",
-        "        # Regular progress updates",
-        "        if ($elapsedMinutes -gt 0 -and ($elapsedMinutes % 5) -eq 0) {",
-        "            Write-Host \"⏱️  Status: ${elapsedMinutes}/${maxTotalMinutes} minutes | Files: $currentFileCount | Job: $($ariJob.State)\" -ForegroundColor Cyan",
-        "        }",
-        "        ",
-        "        # Check job state for failures",
-        "        if ($ariJob.State -eq 'Failed') {",
-        "            $jobError = Receive-Job -Job $ariJob -ErrorAction SilentlyContinue",
-        "            Remove-Job -Job $ariJob",
-        "            throw \"ARI job failed: $jobError\"",
-        "        }",
-        "        ",
-        "        Start-Sleep -Seconds 30  # Check every 30 seconds",
-        "    }",
+        "    # Run ARI directly with verbose output",
+        "    Invoke-Expression $expression",
         "    ",
         "    $endTime = Get-Date",
         "    $duration = $endTime - $startTime",
+        "    Write-Host \"\\n✅ ARI execution completed in $($duration.TotalMinutes.ToString('0.0')) minutes!\" -ForegroundColor Green",
         "    ",
         "    Write-Host 'Azure Resource Inventory completed successfully!' -ForegroundColor Green",
         "} catch {",
@@ -1466,6 +1449,7 @@ def run_cli_job(job_id, script):
     try:
         print(f"[JOB {job_id}] Starting Azure CLI device login process...")
         jobs[job_id]['output'] += "Starting Azure CLI device login process...<br>"
+        save_job(job_id, jobs[job_id])  # Save after update
         
         # Write script to file
         script_file = "/tmp/cli_device_login.sh"
@@ -1490,6 +1474,7 @@ def run_cli_job(job_id, script):
         
         # Stream output with enhanced formatting
         line_count = 0
+        last_save_time = time.time()
         for line in iter(process.stdout.readline, ''):
             if line:
                 line_count += 1
@@ -1499,6 +1484,12 @@ def run_cli_job(job_id, script):
                 # Enhance device code formatting
                 enhanced_line = enhance_device_code_output(line)
                 jobs[job_id]['output'] += enhanced_line
+                
+                # Save to disk every 10 seconds to avoid too many writes
+                current_time = time.time()
+                if current_time - last_save_time > 10:
+                    save_job(job_id, jobs[job_id])
+                    last_save_time = current_time
         
         process.wait()
         
@@ -1523,11 +1514,15 @@ def run_cli_job(job_id, script):
                 <strong style="color: #721c24; font-size: 16px;">❌ Process failed with exit code {process.returncode}</strong><br>
                 <span style="color: #721c24;">Please check the output above for error details.</span>
             </div>'''
+        
+        # Final save
+        save_job(job_id, jobs[job_id])
             
     except Exception as e:
         print(f"[JOB {job_id}] EXCEPTION: {str(e)}")
         jobs[job_id]['status'] = 'failed'
         jobs[job_id]['output'] += f"<br>Error: {str(e)}"
+        save_job(job_id, jobs[job_id])  # Save on error
 
 
 if __name__ == "__main__":
