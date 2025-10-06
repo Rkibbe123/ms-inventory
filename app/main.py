@@ -863,12 +863,25 @@ def cli_device_login():
         let lastOutputLength = 0;
         let processingStartTime = null;
         let sessionExpiredHandled = false; // Flag to prevent duplicate restart buttons
+        let interval = null; // Declare interval variable early
         
         function checkOutput() {
+          // Skip if session expired is already being handled
+          if (sessionExpiredHandled) {
+            if (interval) clearInterval(interval);
+            return;
+          }
+          
           checkCount++;
           fetch(`/job-status/${jobId}`)
             .then(response => response.json())
             .then(data => {
+              // Double-check the flag after async operation
+              if (sessionExpiredHandled) {
+                if (interval) clearInterval(interval);
+                return;
+              }
+              
               console.log('Job status:', data.status, 'Check:', checkCount);
               const outputElement = document.getElementById('output');
               const currentOutput = data.output || '';
@@ -947,28 +960,31 @@ def cli_device_login():
                   window.location.href = '/outputs';
                 }, 2000);
               } else if (data.status === 'not_found') {
-                if (sessionExpiredHandled) return; // Prevent duplicate handling
-                sessionExpiredHandled = true;
+                sessionExpiredHandled = true; // Set flag immediately
+                clearInterval(interval); // Clear interval immediately
                 
                 console.log('Job not found - likely expired or container restarted');
-                clearInterval(interval);
                 const statusElement = document.querySelector('.status');
                 statusElement.className = 'status';
                 statusElement.style.background = '#fff3cd';
                 statusElement.style.borderLeftColor = '#ffc107';
                 statusElement.style.color = '#856404';
                 statusElement.innerHTML = '⚠️ Session expired. Please start a new Azure Resource Inventory scan.';
-                // Show restart button
+                // Show single restart button after delay
                 setTimeout(() => {
-                  const restartBtn = document.createElement('button');
-                  restartBtn.innerHTML = '🔄 Start New Scan';
-                  restartBtn.style.cssText = 'margin-top: 15px; background: #0078d4; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: all 0.3s ease;';
-                  restartBtn.onmouseover = () => restartBtn.style.backgroundColor = '#106ebe';
-                  restartBtn.onmouseout = () => restartBtn.style.backgroundColor = '#0078d4';
-                  restartBtn.onclick = () => window.location.href = '/';
-                  statusElement.appendChild(document.createElement('br'));
-                  statusElement.appendChild(restartBtn);
-                }, 1000);
+                  // Only add button if it doesn't already exist
+                  if (!document.querySelector('.restart-scan-btn')) {
+                    const restartBtn = document.createElement('button');
+                    restartBtn.className = 'restart-scan-btn';
+                    restartBtn.innerHTML = '🔄 Start New Scan';
+                    restartBtn.style.cssText = 'margin-top: 15px; background: #0078d4; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: all 0.3s ease;';
+                    restartBtn.onmouseover = () => restartBtn.style.backgroundColor = '#106ebe';
+                    restartBtn.onmouseout = () => restartBtn.style.backgroundColor = '#0078d4';
+                    restartBtn.onclick = () => window.location.href = '/';
+                    statusElement.appendChild(document.createElement('br'));
+                    statusElement.appendChild(restartBtn);
+                  }
+                }, 500);
               } else if (data.status === 'failed' || checkCount >= maxChecks) {
                 clearInterval(interval);
                 const spinner = document.querySelector('.spinner');
@@ -1022,7 +1038,7 @@ def cli_device_login():
             });
         }
         
-        const interval = setInterval(checkOutput, 2000);
+        interval = setInterval(checkOutput, 2000);
         checkOutput();
       </script>
     </div>
