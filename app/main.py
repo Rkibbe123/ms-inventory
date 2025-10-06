@@ -530,11 +530,11 @@ def enhance_device_code_output(line):
                     <a href="{url}" target="_blank" style="display: inline-block; background: #0078d4; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; margin: 5px; transition: background-color 0.3s ease; box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);" onmouseover="this.style.backgroundColor='#106ebe'" onmouseout="this.style.backgroundColor='#0078d4'">{url}</a>
                 </div>
                 
-                <div style="background: #fef3c7; padding: 20px; border-radius: 12px; margin: 15px 0; text-align: center; border: 2px solid #f59e0b;">
-                    <strong style="color: #d97706; display: block; margin-bottom: 12px; font-size: 18px;">🔑 Step 2: Enter this code</strong>
-                    <div style="background: #fbbf24; padding: 12px 20px; font-size: 28px; font-weight: bold; border-radius: 8px; color: #92400e; font-family: monospace; letter-spacing: 3px; margin: 8px 0; display: inline-block; box-shadow: 0 4px 12px rgba(251, 191, 36, 0.3);">{code}</div>
+                <div style="background: #f0f9ff; padding: 18px; border-radius: 12px; margin: 15px 0; text-align: center; border: 2px solid #0078d4;">
+                    <strong style="color: #0078d4; display: block; margin-bottom: 12px; font-size: 16px;">🔑 Step 2: Enter this code</strong>
+                    <div style="background: #ffffff; padding: 10px 18px; font-size: 28px; font-weight: bold; border-radius: 8px; color: #0078d4; font-family: 'Segoe UI', monospace; letter-spacing: 3px; margin: 8px 0; display: inline-block; box-shadow: 0 2px 8px rgba(0, 120, 212, 0.15); border: 2px solid #e3f2fd;">{code}</div>
                     <br>
-                    <button onclick="navigator.clipboard.writeText('{code}'); this.innerHTML='✅ Copied!'; setTimeout(() => this.innerHTML='📋 Copy Code', 2000);" style="margin-top: 12px; background: #0078d4; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 15px; transition: background-color 0.3s ease; box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);" onmouseover="this.style.backgroundColor='#106ebe'" onmouseout="this.style.backgroundColor='#0078d4'">📋 Copy Code</button>
+                    <button onclick="navigator.clipboard.writeText('{code}'); this.innerHTML='✅ Copied!'; setTimeout(() => this.innerHTML='📋 Copy Code', 2000);" style="margin-top: 12px; background: #0078d4; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 15px; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);" onmouseover="this.style.backgroundColor='#106ebe'; this.style.transform='translateY(-2px)';" onmouseout="this.style.backgroundColor='#0078d4'; this.style.transform='translateY(0)';">📋 Copy Code</button>
                 </div>
             </div>'''
         else:
@@ -862,6 +862,7 @@ def cli_device_login():
         const maxChecks = 1350; // 45 minutes (1350 * 2 seconds) - Enhanced error detection prevents hanging
         let lastOutputLength = 0;
         let processingStartTime = null;
+        let sessionExpiredHandled = false; // Flag to prevent duplicate restart buttons
         
         function checkOutput() {
           checkCount++;
@@ -946,6 +947,9 @@ def cli_device_login():
                   window.location.href = '/outputs';
                 }, 2000);
               } else if (data.status === 'not_found') {
+                if (sessionExpiredHandled) return; // Prevent duplicate handling
+                sessionExpiredHandled = true;
+                
                 console.log('Job not found - likely expired or container restarted');
                 clearInterval(interval);
                 const statusElement = document.querySelector('.status');
@@ -958,7 +962,9 @@ def cli_device_login():
                 setTimeout(() => {
                   const restartBtn = document.createElement('button');
                   restartBtn.innerHTML = '🔄 Start New Scan';
-                  restartBtn.style.cssText = 'margin-top: 15px; background: #0078d4; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold;';
+                  restartBtn.style.cssText = 'margin-top: 15px; background: #0078d4; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: all 0.3s ease;';
+                  restartBtn.onmouseover = () => restartBtn.style.backgroundColor = '#106ebe';
+                  restartBtn.onmouseout = () => restartBtn.style.backgroundColor = '#0078d4';
                   restartBtn.onclick = () => window.location.href = '/';
                   statusElement.appendChild(document.createElement('br'));
                   statusElement.appendChild(restartBtn);
