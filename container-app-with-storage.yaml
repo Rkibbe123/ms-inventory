@@ -1,0 +1,15 @@
+﻿properties:
+  template:
+    containers:
+    - name: azure-resource-inventory
+      image: rkazureinventory.azurecr.io/azure-resource-inventory:v6.24
+      resources:
+        cpu: 1
+        memory: 2Gi
+      volumeMounts:
+      - volumeName: ari-data-volume
+        mountPath: /data
+    volumes:
+    - name: ari-data-volume
+      storageType: AzureFile
+      storageName: ari-data
