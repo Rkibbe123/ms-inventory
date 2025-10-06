@@ -300,6 +300,28 @@ def debug_files():
     
     return f"<pre>{str(debug_info)}</pre>"
 
+@app.route("/check-jobs", methods=["GET"])
+def check_jobs():
+    """Diagnostic endpoint to check PowerShell job status"""
+    try:
+        result = subprocess.run(
+            ["pwsh", "-Command", "Get-Job | Select-Object Name,State,HasMoreData,PSBeginTime,PSEndTime | ConvertTo-Json"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        jobs_info = {
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        return f"<pre>{json.dumps(jobs_info, indent=2)}</pre>"
+    except Exception as e:
+        return f"<pre>Error checking jobs: {str(e)}</pre>"
+
 @app.route("/outputs", methods=["GET"])
 def list_outputs():
     output_dir = get_output_dir()
@@ -770,8 +792,8 @@ def cli_device_login():
         
         <form method="POST">
           <div class="form-group">
-            <label for="tenant">Tenant ID (optional):</label>
-            <input type="text" name="tenant" id="tenant" value="TENANT_VALUE" placeholder="Leave empty for default tenant">
+            <label for="tenant">Tenant ID (required):</label>
+            <input type="text" name="tenant" id="tenant" value="TENANT_VALUE" placeholder="Enter your Azure Tenant ID" required>
           </div>
           
           <div class="form-group">
