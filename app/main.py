@@ -525,16 +525,16 @@ def enhance_device_code_output(line):
                     <strong style="color: #1976d2; font-size: 16px;">🌐 Azure Device Authentication Required</strong>
                 </div>
                 
-                <div style="background: #e8f5e8; padding: 15px; border-radius: 6px; margin: 10px 0; text-align: center;">
-                    <strong style="color: #2e7d32; display: block; margin-bottom: 8px;">🔗 Step 1: Click to open login page</strong>
-                    <a href="{url}" target="_blank" style="display: inline-block; background: #4caf50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; margin: 3px;">{url}</a>
+                <div style="background: #f0f9ff; padding: 20px; border-radius: 12px; margin: 15px 0; text-align: center; border: 2px solid #0078d4;">
+                    <strong style="color: #0078d4; display: block; margin-bottom: 12px; font-size: 18px;">🔗 Step 1: Click to open login page</strong>
+                    <a href="{url}" target="_blank" style="display: inline-block; background: #0078d4; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; margin: 5px; transition: background-color 0.3s ease; box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);" onmouseover="this.style.backgroundColor='#106ebe'" onmouseout="this.style.backgroundColor='#0078d4'">{url}</a>
                 </div>
                 
-                <div style="background: #fff3cd; padding: 5px; border-radius: 6px; margin: 10px 0; text-align: center;">
-                    <strong style="color: #856404; display: block; margin-bottom: 8px;">🔑 Step 2: Enter this code</strong>
-                    <div style="background: #ffeb3b; padding: 8px 15px; font-size: 24px; font-weight: bold; border-radius: 6px; color: #f57f17; font-family: monospace; letter-spacing: 2px; margin: 5px 0; display: inline-block;">{code}</div>
+                <div style="background: #fef3c7; padding: 20px; border-radius: 12px; margin: 15px 0; text-align: center; border: 2px solid #f59e0b;">
+                    <strong style="color: #d97706; display: block; margin-bottom: 12px; font-size: 18px;">🔑 Step 2: Enter this code</strong>
+                    <div style="background: #fbbf24; padding: 12px 20px; font-size: 28px; font-weight: bold; border-radius: 8px; color: #92400e; font-family: monospace; letter-spacing: 3px; margin: 8px 0; display: inline-block; box-shadow: 0 4px 12px rgba(251, 191, 36, 0.3);">{code}</div>
                     <br>
-                    <button onclick="navigator.clipboard.writeText('{code}'); this.innerHTML='✅ Copied!'; setTimeout(() => this.innerHTML='📋 Copy Code', 2000);" style="margin-top: 8px; background: #2196f3; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px;">📋 Copy Code</button>
+                    <button onclick="navigator.clipboard.writeText('{code}'); this.innerHTML='✅ Copied!'; setTimeout(() => this.innerHTML='📋 Copy Code', 2000);" style="margin-top: 12px; background: #0078d4; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 15px; transition: background-color 0.3s ease; box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);" onmouseover="this.style.backgroundColor='#106ebe'" onmouseout="this.style.backgroundColor='#0078d4'">📋 Copy Code</button>
                 </div>
             </div>'''
         else:
@@ -542,13 +542,13 @@ def enhance_device_code_output(line):
     elif "https://microsoft.com/devicelogin" in line and "To sign in" not in line:
         # Standalone URL
         url = "https://microsoft.com/devicelogin"
-        enhanced = f'<div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin: 15px 0; text-align: center;"><strong style="color: #2e7d32; display: block; margin-bottom: 10px;">🔗 Click to open login page:</strong><a href="{url}" target="_blank" style="display: inline-block; background: #4caf50; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;">{url}</a></div>'
+        enhanced = f'<div style="background: #f0f9ff; padding: 25px; border-radius: 12px; margin: 20px 0; text-align: center; border: 2px solid #0078d4;"><strong style="color: #0078d4; display: block; margin-bottom: 15px; font-size: 18px;">🔗 Click to open login page:</strong><a href="{url}" target="_blank" style="display: inline-block; background: #0078d4; color: white; padding: 18px 36px; text-decoration: none; border-radius: 10px; font-weight: bold; font-size: 16px; transition: background-color 0.3s ease; box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);" onmouseover="this.style.backgroundColor='#106ebe'" onmouseout="this.style.backgroundColor='#0078d4'">{url}</a></div>'
     elif re.search(r'\b[A-Z0-9]{6,12}\b', line) and ("code" in line.lower() or "enter" in line.lower()):
         # Standalone device code
         match = re.search(r'\b([A-Z0-9]{6,12})\b', line)
         if match:
             code = match.group(1)
-            enhanced = f'<div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin: 15px 0; text-align: center;"><strong style="color: #856404; display: block; margin-bottom: 10px;">🔑 Your Device Code:</strong><span style="background: #ffeb3b; padding: 10px 20px; font-size: 24px; font-weight: bold; border-radius: 6px; color: #f57f17; font-family: monospace; letter-spacing: 2px;">{code}</span><br><button onclick="navigator.clipboard.writeText(\'{code}\'); this.innerHTML=\'✅ Copied!\'; setTimeout(() => this.innerHTML=\'📋 Copy Code\', 2000);" style="margin-top: 10px; background: #2196f3; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;">📋 Copy Code</button></div>'
+            enhanced = f'<div style="background: linear-gradient(135deg, #e3f2fd 0%, #f8f9ff 100%); padding: 30px; border-radius: 16px; margin: 25px auto; text-align: center; border: 2px solid #0078d4; max-width: 600px; box-shadow: 0 8px 32px rgba(0, 120, 212, 0.15);"><strong style="color: #0078d4; display: block; margin-bottom: 20px; font-size: 22px; font-weight: 600;">🔑 Your Device Authentication Code</strong><div style="background: #ffffff; padding: 20px 30px; font-size: 36px; font-weight: bold; border-radius: 12px; color: #0078d4; font-family: \'Segoe UI\', monospace; letter-spacing: 4px; box-shadow: 0 6px 20px rgba(0, 120, 212, 0.2); border: 2px solid #e3f2fd; margin: 15px 0;">{code}</div><button onclick="navigator.clipboard.writeText(\'{code}\'); this.innerHTML=\'✅ Copied!\'; setTimeout(() => this.innerHTML=\'📋 Copy Code\', 2000);" style="margin-top: 20px; background: #0078d4; color: white; border: none; padding: 15px 30px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 16px; transition: all 0.3s ease; box-shadow: 0 6px 20px rgba(0, 120, 212, 0.3);" onmouseover="this.style.backgroundColor=\'#106ebe\'; this.style.transform=\'translateY(-2px)\';" onmouseout="this.style.backgroundColor=\'#0078d4\'; this.style.transform=\'translateY(0)\';" >📋 Copy Code</button></div>'
         else:
             enhanced = line + "<br>"
     elif "Continuing will" in line or "complete the authentication" in line:
@@ -859,7 +859,7 @@ def cli_device_login():
       <script>
         const jobId = ''' + f"'{job_id}'" + ''';
         let checkCount = 0;
-        const maxChecks = 900; // 30 minutes (900 * 2 seconds) - ARI can take a long time
+        const maxChecks = 1350; // 45 minutes (1350 * 2 seconds) - Enhanced error detection prevents hanging
         let lastOutputLength = 0;
         let processingStartTime = null;
         
@@ -945,6 +945,24 @@ def cli_device_login():
                 setTimeout(() => {
                   window.location.href = '/outputs';
                 }, 2000);
+              } else if (data.status === 'not_found') {
+                console.log('Job not found - likely expired or container restarted');
+                clearInterval(interval);
+                const statusElement = document.querySelector('.status');
+                statusElement.className = 'status';
+                statusElement.style.background = '#fff3cd';
+                statusElement.style.borderLeftColor = '#ffc107';
+                statusElement.style.color = '#856404';
+                statusElement.innerHTML = '⚠️ Session expired. Please start a new Azure Resource Inventory scan.';
+                // Show restart button
+                setTimeout(() => {
+                  const restartBtn = document.createElement('button');
+                  restartBtn.innerHTML = '🔄 Start New Scan';
+                  restartBtn.style.cssText = 'margin-top: 15px; background: #0078d4; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold;';
+                  restartBtn.onclick = () => window.location.href = '/';
+                  statusElement.appendChild(document.createElement('br'));
+                  statusElement.appendChild(restartBtn);
+                }, 1000);
               } else if (data.status === 'failed' || checkCount >= maxChecks) {
                 clearInterval(interval);
                 const spinner = document.querySelector('.spinner');
@@ -1010,7 +1028,12 @@ def cli_device_login():
 def get_job_status(job_id):
     """Get the status and output of a running job"""
     if job_id not in jobs:
-        return jsonify({'error': 'Job not found'}), 404
+        # Instead of 404, return a "not found" status to prevent log spam
+        return jsonify({
+            'status': 'not_found',
+            'output': 'Job not found. It may have expired or the container was restarted.',
+            'created_at': None
+        }), 200
     
     job = jobs[job_id]
     return jsonify({
@@ -1240,12 +1263,114 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
         "    Write-Host 'Please be patient while we analyze your Azure environment.' -ForegroundColor Yellow",
         "    Write-Host ''",
         "    ",
-        "    # Execute ARI with progress tracking",
+        "    # Execute ARI with enhanced progress tracking and error detection",
         "    $startTime = Get-Date",
-        "    Invoke-Expression $expression",
+        "    $lastProgressTime = $startTime",
+        "    $progressCheckInterval = 300  # Check progress every 5 minutes",
+        "    $maxSilentMinutes = 15        # Maximum time without progress before error",
+        "    $maxTotalMinutes = 45         # Maximum total execution time",
+        "    ",
+        "    Write-Host \"🚀 Starting ARI execution with monitoring...\" -ForegroundColor Green",
+        "    Write-Host \"⏰ Max execution time: $maxTotalMinutes minutes\" -ForegroundColor Yellow",
+        "    Write-Host \"🔍 Progress check interval: $($progressCheckInterval/60) minutes\" -ForegroundColor Yellow",
+        "    Write-Host \"⚠️  Max silent time: $maxSilentMinutes minutes\" -ForegroundColor Yellow",
+        "    Write-Host ''",
+        "    ",
+        "    # Start ARI in a background job for monitoring",
+        "    $ariJob = Start-Job -ScriptBlock {",
+        "        param($expression, $reportDir)",
+        "        try {",
+        "            Write-Host \"Job started: $expression\"",
+        "            $result = Invoke-Expression $expression",
+        "            Write-Host \"Job completed successfully\"",
+        "            return @{ Success = $true; Result = $result }",
+        "        } catch {",
+        "            Write-Host \"Job failed: $($_.Exception.Message)\"",
+        "            return @{ Success = $false; Error = $_.Exception.Message }",
+        "        }",
+        "    } -ArgumentList $expression, $reportDir",
+        "    ",
+        "    # Monitor the job with progress tracking",
+        "    $monitoringActive = $true",
+        "    $lastFileCount = 0",
+        "    $consecutiveNoProgress = 0",
+        "    ",
+        "    while ($monitoringActive) {",
+        "        $elapsed = (Get-Date) - $startTime",
+        "        $elapsedMinutes = [math]::Round($elapsed.TotalMinutes, 1)",
+        "        ",
+        "        # Check if job is still running",
+        "        if ($ariJob.State -eq 'Completed') {",
+        "            $jobResult = Receive-Job -Job $ariJob",
+        "            Remove-Job -Job $ariJob",
+        "            if ($jobResult.Success) {",
+        "                Write-Host \"✅ ARI execution completed successfully in $elapsedMinutes minutes!\" -ForegroundColor Green",
+        "            } else {",
+        "                throw \"ARI execution failed: $($jobResult.Error)\"",
+        "            }",
+        "            $monitoringActive = $false",
+        "            break",
+        "        }",
+        "        ",
+        "        # Check for timeout",
+        "        if ($elapsed.TotalMinutes -gt $maxTotalMinutes) {",
+        "            Write-Host \"❌ TIMEOUT: Process exceeded $maxTotalMinutes minutes\" -ForegroundColor Red",
+        "            Stop-Job -Job $ariJob",
+        "            Remove-Job -Job $ariJob",
+        "            throw \"ARI execution timed out after $maxTotalMinutes minutes. This may indicate a problem with your Azure environment or network connectivity.\"",
+        "        }",
+        "        ",
+        "        # Check for progress (file creation)",
+        "        $currentFileCount = 0",
+        "        if (Test-Path $reportDir) {",
+        "            $currentFiles = @(Get-ChildItem -Path $reportDir -File -ErrorAction SilentlyContinue)",
+        "            $currentFileCount = $currentFiles.Count",
+        "        }",
+        "        ",
+        "        # Progress detection",
+        "        if ($currentFileCount -gt $lastFileCount) {",
+        "            $lastProgressTime = Get-Date",
+        "            $consecutiveNoProgress = 0",
+        "            Write-Host \"📈 Progress detected: $currentFileCount files created (${elapsedMinutes}min elapsed)\" -ForegroundColor Green",
+        "            $lastFileCount = $currentFileCount",
+        "        } else {",
+        "            $timeSinceProgress = (Get-Date) - $lastProgressTime",
+        "            if ($timeSinceProgress.TotalMinutes -gt $maxSilentMinutes) {",
+        "                $consecutiveNoProgress++",
+        "                Write-Host \"⚠️  WARNING: No progress for $($timeSinceProgress.TotalMinutes.ToString('0.0')) minutes\" -ForegroundColor Yellow",
+        "                ",
+        "                # If no progress for too long and no files created, consider it stuck",
+        "                if ($currentFileCount -eq 0 -and $timeSinceProgress.TotalMinutes -gt ($maxSilentMinutes + 5)) {",
+        "                    Write-Host \"❌ ERROR: No files created and no progress for $($timeSinceProgress.TotalMinutes.ToString('0.0')) minutes\" -ForegroundColor Red",
+        "                    Write-Host \"This usually indicates:\" -ForegroundColor Yellow",
+        "                    Write-Host \"  • Network connectivity issues\" -ForegroundColor Yellow", 
+        "                    Write-Host \"  • Azure API throttling\" -ForegroundColor Yellow",
+        "                    Write-Host \"  • Authentication token expired\" -ForegroundColor Yellow",
+        "                    Write-Host \"  • Very large subscription with complex resources\" -ForegroundColor Yellow",
+        "                    Stop-Job -Job $ariJob",
+        "                    Remove-Job -Job $ariJob",
+        "                    throw \"ARI process appears stuck - no progress for $($timeSinceProgress.TotalMinutes.ToString('0.0')) minutes\"",
+        "                }",
+        "            }",
+        "        }",
+        "        ",
+        "        # Regular progress updates",
+        "        if ($elapsedMinutes -gt 0 -and ($elapsedMinutes % 5) -eq 0) {",
+        "            Write-Host \"⏱️  Status: ${elapsedMinutes}/${maxTotalMinutes} minutes | Files: $currentFileCount | Job: $($ariJob.State)\" -ForegroundColor Cyan",
+        "        }",
+        "        ",
+        "        # Check job state for failures",
+        "        if ($ariJob.State -eq 'Failed') {",
+        "            $jobError = Receive-Job -Job $ariJob -ErrorAction SilentlyContinue",
+        "            Remove-Job -Job $ariJob",
+        "            throw \"ARI job failed: $jobError\"",
+        "        }",
+        "        ",
+        "        Start-Sleep -Seconds 30  # Check every 30 seconds",
+        "    }",
+        "    ",
         "    $endTime = Get-Date",
         "    $duration = $endTime - $startTime",
-        "    Write-Host \"\\n✅ ARI execution completed in $($duration.TotalMinutes.ToString('0.0')) minutes!\" -ForegroundColor Green",
         "    ",
         "    Write-Host 'Azure Resource Inventory completed successfully!' -ForegroundColor Green",
         "} catch {",
