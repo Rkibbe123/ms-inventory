@@ -859,7 +859,7 @@ def cli_device_login():
       <script>
         const jobId = ''' + f"'{job_id}'" + ''';
         let checkCount = 0;
-        const maxChecks = 150; // 5 minutes (150 * 2 seconds)
+        const maxChecks = 300; // 10 minutes (300 * 2 seconds)
         
         function checkOutput() {
           checkCount++;
@@ -913,44 +913,47 @@ def cli_device_login():
                 const spinner = document.querySelector('.spinner');
                 if (spinner) spinner.style.display = 'none';
                 
-                // Check if any reports were generated before showing navigation
-                fetch('/debug-files')
-                  .then(response => response.text())
-                  .then(debugData => {
-                    console.log('Debug data:', debugData);
-                    const hasFiles = debugData.includes('"filtered_files": [') && !debugData.includes('"filtered_files": []');
-                    
-                    if (hasFiles) {
-                      // Show success navigation if files exist
+                // Add a delay before checking files to ensure they're fully written
+                setTimeout(() => {
+                  // Check if any reports were generated before showing navigation
+                  fetch('/debug-files')
+                    .then(response => response.text())
+                    .then(debugData => {
+                      console.log('Debug data:', debugData);
+                      const hasFiles = debugData.includes('"filtered_files": [') && !debugData.includes('"filtered_files": []');
+                      
+                      if (hasFiles) {
+                        // Show success navigation if files exist
+                        document.getElementById('manual-nav').innerHTML = `
+                          <p style="margin: 0 0 10px 0; color: #2e7d32; font-weight: 500;">🎉 Reports generated successfully!</p>
+                          <a href="/outputs" style="display: inline-block; background: #4caf50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">📁 View Generated Reports</a>
+                          <span style="margin: 0 10px;">|</span>
+                          <a href="/" style="display: inline-block; background: #2196f3; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">🏠 Back to Home</a>
+                        `;
+                        document.getElementById('manual-nav').style.display = 'block';
+                      } else {
+                        // Show error navigation if no files exist
+                        document.getElementById('manual-nav').innerHTML = `
+                          <p style="margin: 0 0 10px 0; color: #d32f2f; font-weight: 500;">❌ Process failed - No reports were generated</p>
+                          <a href="/cli-device-login" style="display: inline-block; background: #dc2626; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">🔄 Try Again</a>
+                          <span style="margin: 0 10px;">|</span>
+                          <a href="/" style="display: inline-block; background: #2196f3; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">🏠 Back to Home</a>
+                        `;
+                        document.getElementById('manual-nav').style.display = 'block';
+                      }
+                    })
+                    .catch(error => {
+                      console.error('Error checking files:', error);
+                      // Fallback: just show home button
                       document.getElementById('manual-nav').innerHTML = `
-                        <p style="margin: 0 0 10px 0; color: #2e7d32; font-weight: 500;">🎉 Reports generated successfully!</p>
-                        <a href="/outputs" style="display: inline-block; background: #4caf50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">📁 View Generated Reports</a>
-                        <span style="margin: 0 10px;">|</span>
-                        <a href="/" style="display: inline-block; background: #2196f3; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">🏠 Back to Home</a>
-                      `;
-                      document.getElementById('manual-nav').style.display = 'block';
-                    } else {
-                      // Show error navigation if no files exist
-                      document.getElementById('manual-nav').innerHTML = `
-                        <p style="margin: 0 0 10px 0; color: #d32f2f; font-weight: 500;">❌ Process failed - No reports were generated</p>
+                        <p style="margin: 0 0 10px 0; color: #d32f2f; font-weight: 500;">❌ Process encountered errors</p>
                         <a href="/cli-device-login" style="display: inline-block; background: #dc2626; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">🔄 Try Again</a>
                         <span style="margin: 0 10px;">|</span>
                         <a href="/" style="display: inline-block; background: #2196f3; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">🏠 Back to Home</a>
                       `;
                       document.getElementById('manual-nav').style.display = 'block';
-                    }
-                  })
-                  .catch(error => {
-                    console.error('Error checking files:', error);
-                    // Fallback: just show home button
-                    document.getElementById('manual-nav').innerHTML = `
-                      <p style="margin: 0 0 10px 0; color: #d32f2f; font-weight: 500;">❌ Process encountered errors</p>
-                      <a href="/cli-device-login" style="display: inline-block; background: #dc2626; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">🔄 Try Again</a>
-                      <span style="margin: 0 10px;">|</span>
-                      <a href="/" style="display: inline-block; background: #2196f3; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">🏠 Back to Home</a>
-                    `;
-                    document.getElementById('manual-nav').style.display = 'block';
-                  });
+                    });
+                }, 3000); // Wait 3 seconds for files to be fully written
               }
             })
             .catch(error => {
@@ -1292,6 +1295,10 @@ def run_cli_job(job_id, script):
                 jobs[job_id]['output'] += enhanced_line
         
         process.wait()
+        
+        # Add a small delay to ensure files are fully written to disk
+        # This prevents race condition where frontend checks before files are flushed
+        time.sleep(2)
         
         if process.returncode == 0:
             jobs[job_id]['status'] = 'completed'
