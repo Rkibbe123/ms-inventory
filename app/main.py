@@ -211,26 +211,281 @@ def index():
     return INDEX_HTML
 
 
+@app.route("/debug-files", methods=["GET"])
+def debug_files():
+    """Debug endpoint to check file system status"""
+    output_dir = get_output_dir()
+    debug_info = {
+        "output_dir": output_dir,
+        "dir_exists": os.path.exists(output_dir),
+        "all_files": [],
+        "filtered_files": [],
+        "env_var": os.environ.get("ARI_OUTPUT_DIR", "Not set")
+    }
+    
+    try:
+        if os.path.exists(output_dir):
+            all_files = os.listdir(output_dir)
+            debug_info["all_files"] = all_files
+            debug_info["filtered_files"] = [f for f in all_files if f.lower().endswith((".xlsx", ".xml", ".log", ".txt", ".csv", ".json", ".html", ".pdf"))]
+    except Exception as e:
+        debug_info["error"] = str(e)
+    
+    return f"<pre>{str(debug_info)}</pre>"
+
 @app.route("/outputs", methods=["GET"])
 def list_outputs():
     output_dir = get_output_dir()
     files = []
     try:
         for name in sorted(os.listdir(output_dir)):
-            if name.lower().endswith((".xlsx", ".xml", ".log")):
+            if name.lower().endswith((".xlsx", ".xml", ".log", ".txt", ".csv", ".json", ".html", ".pdf")):
                 files.append(name)
     except FileNotFoundError:
         pass
 
-    items = "".join(f"<li><a href='/download/{name}'>{name}</a></li>" for name in files) or "<li>No files yet</li>"
+    # Create file items with enhanced styling
+    if files:
+        items = ""
+        for name in files:
+            # Determine file type and icon
+            ext = name.lower().split('.')[-1] if '.' in name else ''
+            if ext == 'xlsx':
+                icon = "📊"
+                type_label = "Excel Report"
+            elif ext == 'xml':
+                icon = "🌐"
+                type_label = "XML Data"
+            elif ext == 'log':
+                icon = "📝"
+                type_label = "Log File"
+            elif ext == 'txt':
+                icon = "📄"
+                type_label = "Text File"
+            elif ext == 'csv':
+                icon = "📋"
+                type_label = "CSV Data"
+            elif ext == 'json':
+                icon = "🔗"
+                type_label = "JSON Data"
+            elif ext == 'html':
+                icon = "🌐"
+                type_label = "HTML Report"
+            elif ext == 'pdf':
+                icon = "📕"
+                type_label = "PDF Document"
+            else:
+                icon = "📁"
+                type_label = "File"
+            
+            items += f"""
+            <div class="file-item">
+                <div class="file-icon">{icon}</div>
+                <div class="file-info">
+                    <div class="file-name">{name}</div>
+                    <div class="file-type">{type_label}</div>
+                </div>
+                <a href="/download/{name}" class="download-btn">📥 Download</a>
+            </div>"""
+    else:
+        items = """
+        <div class="no-files">
+            <div class="no-files-icon">📂</div>
+            <div class="no-files-text">
+                <h3>No Reports Generated Yet</h3>
+                <p>Run the Azure Resource Inventory to generate reports and analysis files.</p>
+                <a href="/cli-device-login" class="run-inventory-btn">🚀 Run Inventory Now</a>
+            </div>
+        </div>"""
+    
     html = f"""
 <!doctype html>
 <html>
-  <head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Outputs</title></head>
-  <body style='font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 40px;'>
-    <h1>Generated outputs</h1>
-    <ul>{items}</ul>
-    <a href='/'>Back</a>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Generated Reports - Azure Resource Inventory</title>
+    <style>
+      body {{ 
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+        margin: 0; 
+        padding: 40px; 
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #0ea5e9 100%);
+        min-height: 100vh;
+      }}
+      .container {{ 
+        max-width: 800px; 
+        margin: 0 auto; 
+        background: white; 
+        border-radius: 16px; 
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        overflow: hidden;
+      }}
+      .header {{ 
+        background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%); 
+        color: white; 
+        padding: 40px; 
+        text-align: center; 
+      }}
+      .header h1 {{ 
+        margin: 0; 
+        font-size: 2.2rem; 
+        font-weight: 700; 
+        text-shadow: 0 2px 4px rgba(0,0,0,0.3); 
+      }}
+      .header p {{ 
+        margin: 10px 0 0 0; 
+        font-size: 1.1rem; 
+        opacity: 0.9; 
+      }}
+      .content {{ padding: 30px; }}
+      .file-grid {{ 
+        display: flex; 
+        flex-direction: column; 
+        gap: 15px; 
+      }}
+      .file-item {{
+        display: flex;
+        align-items: center;
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 12px;
+        border: 2px solid #e9ecef;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+      }}
+      .file-item:hover {{
+        border-color: #0078d4;
+        transform: translateY(-2px);
+        box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+      }}
+      .file-icon {{
+        font-size: 2.5rem;
+        margin-right: 20px;
+        min-width: 60px;
+        text-align: center;
+      }}
+      .file-info {{
+        flex: 1;
+      }}
+      .file-name {{
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #1e293b;
+        margin-bottom: 4px;
+      }}
+      .file-type {{
+        font-size: 0.9rem;
+        color: #64748b;
+        font-weight: 500;
+      }}
+      .download-btn {{
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        color: white;
+        padding: 10px 20px;
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 0.9rem;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 6px rgba(16, 185, 129, 0.3);
+      }}
+      .download-btn:hover {{
+        transform: translateY(-1px);
+        box-shadow: 0 6px 12px rgba(16, 185, 129, 0.4);
+      }}
+      .no-files {{
+        text-align: center;
+        padding: 60px 20px;
+        background: #f8f9fa;
+        border-radius: 12px;
+        border: 2px dashed #d1d5db;
+      }}
+      .no-files-icon {{
+        font-size: 4rem;
+        margin-bottom: 20px;
+        opacity: 0.6;
+      }}
+      .no-files-text h3 {{
+        margin: 0 0 10px 0;
+        color: #374151;
+        font-size: 1.4rem;
+      }}
+      .no-files-text p {{
+        margin: 0 0 25px 0;
+        color: #6b7280;
+        font-size: 1rem;
+        line-height: 1.5;
+      }}
+      .run-inventory-btn {{
+        display: inline-block;
+        background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+        color: white;
+        padding: 15px 30px;
+        border-radius: 10px;
+        text-decoration: none;
+        font-weight: 700;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+        box-shadow: 0 8px 12px rgba(220, 38, 38, 0.3);
+      }}
+      .run-inventory-btn:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 12px 18px rgba(220, 38, 38, 0.4);
+      }}
+      .back-link {{
+        text-align: center;
+        margin-top: 30px;
+        padding-top: 20px;
+        border-top: 1px solid #e5e7eb;
+      }}
+      .back-link a {{
+        color: #0078d4;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 1rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.2s ease;
+      }}
+      .back-link a:hover {{
+        color: #106ebe;
+        transform: translateX(-2px);
+      }}
+      .stats {{
+        background: #e0f2fe;
+        padding: 15px 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        border-left: 4px solid #0078d4;
+      }}
+      .stats-text {{
+        color: #0c4a6e;
+        font-weight: 600;
+        font-size: 0.95rem;
+      }}
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>📊 Generated Reports</h1>
+        <p>Azure Resource Inventory Analysis Results</p>
+      </div>
+      
+      <div class="content">
+        {f'<div class="stats"><div class="stats-text">📁 Found {len(files)} report file(s) ready for download</div></div>' if files else ''}
+        
+        <div class="file-grid">
+          {items}
+        </div>
+        
+        <div class="back-link">
+          <a href="/">← Back to Main Dashboard</a>
+        </div>
+      </div>
+    </div>
   </body>
 </html>
 """
@@ -361,7 +616,11 @@ def cli_device_login():
         border-left: 4px solid #0078d4; 
         font-size: 0.9rem;
       }
-      .warning strong { color: #0078d4; }
+      .warning strong { 
+        color: #dc2626; 
+        font-weight: bold;
+        font-size: 1.1em;
+      }
       .form-group { margin-bottom: 18px; }
       label { 
         display: block; 
@@ -371,16 +630,27 @@ def cli_device_login():
       }
       input { 
         width: 100%; 
-        padding: 10px 14px; 
+        padding: 15px 20px; 
         border: 2px solid #e2e8f0; 
-        border-radius: 6px; 
-        font-size: 0.95rem;
-        transition: border-color 0.2s;
+        border-radius: 12px; 
+        font-size: 1.1rem;
+        font-weight: 500;
+        text-align: center;
+        background: #f8f9fa;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
       }
       input:focus { 
         outline: none;
         border-color: #0078d4;
-        box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.1);
+        background: #ffffff;
+        box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.15), 0 4px 8px rgba(0, 0, 0, 0.1);
+        transform: translateY(-1px);
+      }
+      input::placeholder {
+        color: #9ca3af;
+        font-style: italic;
+        font-weight: 400;
       }
       .run-button { 
         display: inline-block; 
@@ -533,12 +803,24 @@ def cli_device_login():
       @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
       .status {
         background: #f0f9ff;
-        padding: 10px;
-        border-radius: 6px;
-        margin-bottom: 10px;
-        border-left: 3px solid #0078d4;
-        font-size: 0.9rem;
-        font-weight: 500;
+        padding: 12px 15px;
+        border-radius: 8px;
+        margin-bottom: 12px;
+        border-left: 4px solid #0078d4;
+        font-size: 1rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+      }
+      .status.processing {
+        background: #fff7ed;
+        border-left-color: #f59e0b;
+        color: #92400e;
+      }
+      .status.completed {
+        background: #f0fdf4;
+        border-left-color: #10b981;
+        color: #065f46;
       }
       .output { 
         background: #1e293b; 
@@ -570,11 +852,8 @@ def cli_device_login():
         </div>
         <div id="output" class="output"></div>
         
-        <div id="manual-nav" style="display: none; text-align: center; margin-top: 20px; padding: 15px; background: #e8f5e8; border-radius: 8px;">
-          <p style="margin: 0 0 10px 0; color: #2e7d32; font-weight: 500;">🎉 Process may have completed! If not redirected automatically:</p>
-          <a href="/outputs" style="display: inline-block; background: #4caf50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">📁 View Generated Reports</a>
-          <span style="margin: 0 10px;">|</span>
-          <a href="/" style="display: inline-block; background: #2196f3; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">🏠 Back to Home</a>
+        <div id="manual-nav" style="display: none; text-align: center; margin-top: 20px; padding: 15px; border-radius: 8px;">
+          <!-- Content will be dynamically populated based on success/failure -->
         </div>
       
       <script>
@@ -592,6 +871,37 @@ def cli_device_login():
               outputElement.innerHTML = data.output || '';
               outputElement.scrollTop = outputElement.scrollHeight;
               
+              // Update status message based on progress
+              const statusElement = document.querySelector('.status');
+              const output = data.output || '';
+              
+              if (output.includes('Azure Resource Inventory execution') || 
+                  output.includes('Starting Invoke-ARI') || 
+                  output.includes('Connected to Azure successfully') ||
+                  output.includes('Attempting ARI execution') ||
+                  output.includes('Gathering VM Extra Details') ||
+                  output.includes('Running API Inventory')) {
+                statusElement.className = 'status processing';
+                statusElement.innerHTML = '<span class="spinner"></span>🔍 Processing Azure Resource Inventory... Analyzing your cloud environment.';
+              } else if (output.includes('completed successfully') || data.status === 'completed') {
+                statusElement.className = 'status completed';
+                statusElement.innerHTML = '✅ Azure Resource Inventory completed successfully!';
+              } else if (output.includes('Failed to resolve tenant') || 
+                        output.includes('ERROR: Failed to resolve') ||
+                        output.includes('Process failed with exit code')) {
+                statusElement.className = 'status';
+                statusElement.style.background = '#fef2f2';
+                statusElement.style.borderLeftColor = '#ef4444';
+                statusElement.style.color = '#991b1b';
+                statusElement.innerHTML = '❌ Authentication failed - Please check your Azure permissions and try again.';
+              } else if (output.includes('Authentication completed') || 
+                        output.includes('Verifying authentication') ||
+                        output.includes('Current Subscription:') ||
+                        output.includes('Already authenticated')) {
+                statusElement.className = 'status processing';
+                statusElement.innerHTML = '<span class="spinner"></span>🔐 Authentication successful! Initializing Azure Resource Inventory...';
+              }
+              
               if (data.status === 'completed') {
                 clearInterval(interval);
                 console.log('Job completed, redirecting to outputs...');
@@ -600,10 +910,47 @@ def cli_device_login():
                 }, 2000);
               } else if (data.status === 'failed' || checkCount >= maxChecks) {
                 clearInterval(interval);
-                console.log('Job failed or timed out, showing manual navigation');
-                document.getElementById('manual-nav').style.display = 'block';
                 const spinner = document.querySelector('.spinner');
                 if (spinner) spinner.style.display = 'none';
+                
+                // Check if any reports were generated before showing navigation
+                fetch('/debug-files')
+                  .then(response => response.text())
+                  .then(debugData => {
+                    console.log('Debug data:', debugData);
+                    const hasFiles = debugData.includes('"filtered_files": [') && !debugData.includes('"filtered_files": []');
+                    
+                    if (hasFiles) {
+                      // Show success navigation if files exist
+                      document.getElementById('manual-nav').innerHTML = `
+                        <p style="margin: 0 0 10px 0; color: #2e7d32; font-weight: 500;">🎉 Reports generated successfully!</p>
+                        <a href="/outputs" style="display: inline-block; background: #4caf50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">📁 View Generated Reports</a>
+                        <span style="margin: 0 10px;">|</span>
+                        <a href="/" style="display: inline-block; background: #2196f3; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">🏠 Back to Home</a>
+                      `;
+                      document.getElementById('manual-nav').style.display = 'block';
+                    } else {
+                      // Show error navigation if no files exist
+                      document.getElementById('manual-nav').innerHTML = `
+                        <p style="margin: 0 0 10px 0; color: #d32f2f; font-weight: 500;">❌ Process failed - No reports were generated</p>
+                        <a href="/cli-device-login" style="display: inline-block; background: #dc2626; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">🔄 Try Again</a>
+                        <span style="margin: 0 10px;">|</span>
+                        <a href="/" style="display: inline-block; background: #2196f3; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">🏠 Back to Home</a>
+                      `;
+                      document.getElementById('manual-nav').style.display = 'block';
+                    }
+                  })
+                  .catch(error => {
+                    console.error('Error checking files:', error);
+                    // Fallback: just show home button
+                    document.getElementById('manual-nav').innerHTML = `
+                      <p style="margin: 0 0 10px 0; color: #d32f2f; font-weight: 500;">❌ Process encountered errors</p>
+                      <a href="/cli-device-login" style="display: inline-block; background: #dc2626; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">🔄 Try Again</a>
+                      <span style="margin: 0 10px;">|</span>
+                      <a href="/" style="display: inline-block; background: #2196f3; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold;">🏠 Back to Home</a>
+                    `;
+                    document.getElementById('manual-nav').style.display = 'block';
+                  });
               }
             })
             .catch(error => {
@@ -720,15 +1067,47 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
         "    $azContext = az account show --output json | ConvertFrom-Json",
         "    if ($azContext) {",
         "        Write-Host \"Found Azure CLI context for: $($azContext.name)\" -ForegroundColor Green",
-        "        # Connect using Access Token from CLI",
-        "        $accessToken = az account get-access-token --query accessToken --output tsv",
-        "        Connect-AzAccount -AccessToken $accessToken -AccountId $azContext.user.name -ErrorAction Stop",
-        "        Write-Host 'Connected to Azure successfully using CLI credentials!' -ForegroundColor Green",
+        "        Write-Host \"Tenant ID: $($azContext.tenantId)\" -ForegroundColor Cyan",
+        "        Write-Host \"Subscription ID: $($azContext.id)\" -ForegroundColor Cyan",
+        "        Write-Host \"Account: $($azContext.user.name)\" -ForegroundColor Cyan",
+        "        ",
+        "        # Get access token with tenant specification",
+        "        Write-Host 'Getting access token...' -ForegroundColor Yellow",
+        "        $accessToken = az account get-access-token --tenant $azContext.tenantId --query accessToken --output tsv",
+        "        if (-not $accessToken) {",
+        "            throw 'Failed to get access token from Azure CLI'",
+        "        }",
+        "        ",
+        "        # Try multiple connection methods",
+        "        Write-Host 'Attempting PowerShell connection (Method 1: Full parameters)...' -ForegroundColor Yellow",
+        "        try {",
+        "            Connect-AzAccount -AccessToken $accessToken -AccountId $azContext.user.name -TenantId $azContext.tenantId -ErrorAction Stop",
+        "            Write-Host 'Connected to Azure successfully using CLI credentials!' -ForegroundColor Green",
+        "        } catch {",
+        "            Write-Host \"Method 1 failed: $($_.Exception.Message)\" -ForegroundColor Yellow",
+        "            Write-Host 'Attempting PowerShell connection (Method 2: Simplified)...' -ForegroundColor Yellow",
+        "            try {",
+        "                # Try without AccountId in case that's causing issues",
+        "                Connect-AzAccount -AccessToken $accessToken -TenantId $azContext.tenantId -ErrorAction Stop",
+        "                Write-Host 'Connected to Azure successfully (Method 2)!' -ForegroundColor Green",
+        "            } catch {",
+        "                Write-Host \"Method 2 failed: $($_.Exception.Message)\" -ForegroundColor Yellow",
+        "                Write-Host 'Attempting PowerShell connection (Method 3: Device login fallback)...' -ForegroundColor Yellow",
+        "                # As last resort, try device login directly in PowerShell",
+        "                Connect-AzAccount -UseDeviceAuthentication -TenantId $azContext.tenantId -ErrorAction Stop",
+        "                Write-Host 'Connected using device authentication!' -ForegroundColor Green",
+        "            }",
+        "        }",
         "    } else {",
         "        throw 'No Azure CLI context found'",
         "    }",
         "} catch {",
         "    Write-Error \"Failed to connect to Azure: $($_.Exception.Message)\"",
+        "    Write-Host 'Debug information:' -ForegroundColor Yellow",
+        "    Write-Host \"Current working directory: $(Get-Location)\" -ForegroundColor Gray",
+        "    Write-Host \"PowerShell version: $($PSVersionTable.PSVersion)\" -ForegroundColor Gray",
+        "    Write-Host \"Available Az modules:\" -ForegroundColor Gray",
+        "    Get-Module Az* -ListAvailable | Select-Object Name, Version | Format-Table -AutoSize",
         "    exit 1",
         "}"
     ])
@@ -762,11 +1141,20 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
         "",
         "try {",
         "    # Get current tenant and subscription info",
-        "    $context = Get-AzContext",
-        "    $tenantId = $context.Tenant.Id",
-        "    $subscriptionId = $context.Subscription.Id",
-        "    Write-Host \"Using Tenant: $tenantId\" -ForegroundColor Cyan",
-        "    Write-Host \"Using Subscription: $subscriptionId\" -ForegroundColor Cyan",
+        "    $context = Get-AzContext -ErrorAction SilentlyContinue",
+        "    if ($context) {",
+        "        $tenantId = $context.Tenant.Id",
+        "        $subscriptionId = $context.Subscription.Id",
+        "        Write-Host \"Using PowerShell context - Tenant: $tenantId\" -ForegroundColor Cyan",
+        "        Write-Host \"Using PowerShell context - Subscription: $subscriptionId\" -ForegroundColor Cyan",
+        "    } else {",
+        "        Write-Host 'No PowerShell context found, using Azure CLI context...' -ForegroundColor Yellow",
+        "        $cliContext = az account show --output json | ConvertFrom-Json",
+        "        $tenantId = $cliContext.tenantId",
+        "        $subscriptionId = $cliContext.id",
+        "        Write-Host \"Using CLI context - Tenant: $tenantId\" -ForegroundColor Cyan",
+        "        Write-Host \"Using CLI context - Subscription: $subscriptionId\" -ForegroundColor Cyan",
+        "    }",
         "    ",
         "    # Use simple string-based execution to avoid PowerShell object casting issues",
         "    Write-Host 'Starting Azure Resource Inventory execution...' -ForegroundColor Yellow",
@@ -811,18 +1199,34 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
         "    }",
         "}",
         "",
-        "# Check for generated files",
+        "# Check for generated files with enhanced debugging",
         "Write-Host 'Checking for generated files...' -ForegroundColor Green",
+        "Write-Host \"Report Directory: $reportDir\" -ForegroundColor Cyan",
+        "Write-Host \"Directory exists: $(Test-Path $reportDir)\" -ForegroundColor Cyan",
         "if (Test-Path $reportDir) {",
-        "    $files = Get-ChildItem -Path $reportDir -File -ErrorAction SilentlyContinue",
+        "    $allFiles = Get-ChildItem -Path $reportDir -ErrorAction SilentlyContinue",
+        "    $files = $allFiles | Where-Object { -not $_.PSIsContainer }",
+        "    Write-Host \"Total items in directory: $($allFiles.Count)\" -ForegroundColor Cyan",
+        "    Write-Host \"Files in directory: $($files.Count)\" -ForegroundColor Cyan",
         "    if ($files) {",
         "        Write-Host 'Generated files:' -ForegroundColor Green",
         "        $files | Select-Object Name, @{Name='Size(MB)';Expression={[math]::Round($_.Length/1MB,2)}}, LastWriteTime | Format-Table -AutoSize",
+        "        Write-Host 'File paths:' -ForegroundColor Yellow",
+        "        $files | ForEach-Object { Write-Host \"  - $($_.FullName)\" -ForegroundColor Gray }",
         "    } else {",
         "        Write-Warning 'No files found in output directory'",
+        "        Write-Host 'Directory contents:' -ForegroundColor Yellow",
+        "        $allFiles | ForEach-Object { Write-Host \"  - $($_.Name) (Type: $($_.GetType().Name))\" -ForegroundColor Gray }",
         "    }",
         "} else {",
         "    Write-Warning 'Output directory not found!'",
+        "    Write-Host \"Attempting to create directory: $reportDir\" -ForegroundColor Yellow",
+        "    try {",
+        "        New-Item -Path $reportDir -ItemType Directory -Force",
+        "        Write-Host 'Directory created successfully' -ForegroundColor Green",
+        "    } catch {",
+        "        Write-Error \"Failed to create directory: $_\"",
+        "    }",
         "}",
         "EOF",
         "",
