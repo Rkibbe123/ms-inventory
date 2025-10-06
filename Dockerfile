@@ -3,7 +3,7 @@ FROM mcr.microsoft.com/powershell:lts-ubuntu-22.04
 # Install system deps, Python, and Azure CLI
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      python3 python3-pip ca-certificates curl gnupg lsb-release software-properties-common && \
+      python3 python3-pip ca-certificates curl gnupg lsb-release software-properties-common jq && \
     # Install Azure CLI
     curl -sL https://aka.ms/InstallAzureCLIDeb | bash && \
     rm -rf /var/lib/apt/lists/*
