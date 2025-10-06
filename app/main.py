@@ -859,7 +859,9 @@ def cli_device_login():
       <script>
         const jobId = ''' + f"'{job_id}'" + ''';
         let checkCount = 0;
-        const maxChecks = 300; // 10 minutes (300 * 2 seconds)
+        const maxChecks = 900; // 30 minutes (900 * 2 seconds) - ARI can take a long time
+        let lastOutputLength = 0;
+        let processingStartTime = null;
         
         function checkOutput() {
           checkCount++;
@@ -868,8 +870,15 @@ def cli_device_login():
             .then(data => {
               console.log('Job status:', data.status, 'Check:', checkCount);
               const outputElement = document.getElementById('output');
-              outputElement.innerHTML = data.output || '';
+              const currentOutput = data.output || '';
+              outputElement.innerHTML = currentOutput;
               outputElement.scrollTop = outputElement.scrollHeight;
+              
+              // Track output changes for heartbeat
+              const currentOutputLength = currentOutput.length;
+              if (currentOutputLength > lastOutputLength) {
+                lastOutputLength = currentOutputLength;
+              }
               
               // Update status message based on progress
               const statusElement = document.querySelector('.status');
@@ -882,7 +891,35 @@ def cli_device_login():
                   output.includes('Gathering VM Extra Details') ||
                   output.includes('Running API Inventory')) {
                 statusElement.className = 'status processing';
-                statusElement.innerHTML = '<span class="spinner"></span>🔍 Processing Azure Resource Inventory... Analyzing your cloud environment.';
+                
+                // Track when processing started
+                if (!processingStartTime) {
+                  processingStartTime = Date.now();
+                }
+                
+                // Calculate elapsed time
+                const elapsed = Math.floor((Date.now() - processingStartTime) / 1000);
+                const minutes = Math.floor(elapsed / 60);
+                const seconds = elapsed % 60;
+                
+                // Show progress based on what's happening
+                let progressMsg = '🔍 Processing Azure Resource Inventory';
+                if (output.includes('Running API Inventory')) {
+                  progressMsg = '📊 Scanning Azure resources and generating reports';
+                } else if (output.includes('Gathering VM Extra Details')) {
+                  progressMsg = '🖥️ Gathering detailed VM information';
+                } else if (output.includes('Extracting Subscriptions')) {
+                  progressMsg = '📋 Extracting subscription details';
+                }
+                
+                // Add heartbeat indicator if no output for a while
+                let heartbeat = '';
+                if (currentOutputLength === lastOutputLength && checkCount > 10) {
+                  const dots = '.'.repeat((checkCount % 4) + 1);
+                  heartbeat = ` <span style="color: #10b981;">Processing${dots}</span>`;
+                }
+                
+                statusElement.innerHTML = `<span class="spinner"></span>${progressMsg}...${heartbeat} <br><small style="opacity: 0.7;">Running for ${minutes}m ${seconds}s - Large environments may take 10-30 minutes</small>`;
               } else if (output.includes('completed successfully') || data.status === 'completed') {
                 statusElement.className = 'status completed';
                 statusElement.innerHTML = '✅ Azure Resource Inventory completed successfully!';
@@ -1196,7 +1233,19 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
         "    ",
         "    $expression = \"Invoke-ARI $paramString\"",
         "    Write-Host \"Executing: $expression\" -ForegroundColor Gray",
+        "    Write-Host ''",
+        "    Write-Host '⏳ Azure Resource Inventory is now running...' -ForegroundColor Yellow",
+        "    Write-Host 'This process scans all resources in your subscription and may take 10-30 minutes.' -ForegroundColor Yellow",
+        "    Write-Host 'The screen may appear quiet while ARI works - this is normal.' -ForegroundColor Yellow",
+        "    Write-Host 'Please be patient while we analyze your Azure environment.' -ForegroundColor Yellow",
+        "    Write-Host ''",
+        "    ",
+        "    # Execute ARI with progress tracking",
+        "    $startTime = Get-Date",
         "    Invoke-Expression $expression",
+        "    $endTime = Get-Date",
+        "    $duration = $endTime - $startTime",
+        "    Write-Host \"\\n✅ ARI execution completed in $($duration.TotalMinutes.ToString('0.0')) minutes!\" -ForegroundColor Green",
         "    ",
         "    Write-Host 'Azure Resource Inventory completed successfully!' -ForegroundColor Green",
         "} catch {",
@@ -1268,6 +1317,7 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
 def run_cli_job(job_id, script):
     """Run Azure CLI script with enhanced device code formatting"""
     try:
+        print(f"[JOB {job_id}] Starting Azure CLI device login process...")
         jobs[job_id]['output'] += "Starting Azure CLI device login process...<br>"
         
         # Write script to file
@@ -1275,6 +1325,8 @@ def run_cli_job(job_id, script):
         with open(script_file, 'w') as f:
             f.write(script)
         os.chmod(script_file, 0o755)
+        
+        print(f"[JOB {job_id}] Script written to {script_file}, starting execution...")
         
         # Run the script
         process = subprocess.Popen(
@@ -1287,26 +1339,38 @@ def run_cli_job(job_id, script):
         
         jobs[job_id]['process'] = process
         
+        print(f"[JOB {job_id}] Process started with PID: {process.pid}")
+        
         # Stream output with enhanced formatting
+        line_count = 0
         for line in iter(process.stdout.readline, ''):
             if line:
+                line_count += 1
+                # Print every line to container logs for debugging
+                print(f"[JOB {job_id}] LINE {line_count}: {line.strip()}")
+                
                 # Enhance device code formatting
                 enhanced_line = enhance_device_code_output(line)
                 jobs[job_id]['output'] += enhanced_line
         
         process.wait()
         
+        print(f"[JOB {job_id}] Process completed with exit code: {process.returncode}")
+        print(f"[JOB {job_id}] Total lines captured: {line_count}")
+        
         # Add a small delay to ensure files are fully written to disk
         # This prevents race condition where frontend checks before files are flushed
         time.sleep(2)
         
         if process.returncode == 0:
+            print(f"[JOB {job_id}] SUCCESS: ARI execution completed successfully")
             jobs[job_id]['status'] = 'completed'
             jobs[job_id]['output'] += '''<br><div style="background: #d4edda; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #28a745;">
                 <strong style="color: #155724; font-size: 16px;">🎉 Azure Resource Inventory completed successfully!</strong><br>
                 <span style="color: #155724;">Your reports have been generated and are ready for download.</span>
             </div>'''
         else:
+            print(f"[JOB {job_id}] FAILED: Process failed with exit code {process.returncode}")
             jobs[job_id]['status'] = 'failed'
             jobs[job_id]['output'] += f'''<br><div style="background: #f8d7da; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #dc3545;">
                 <strong style="color: #721c24; font-size: 16px;">❌ Process failed with exit code {process.returncode}</strong><br>
@@ -1314,6 +1378,7 @@ def run_cli_job(job_id, script):
             </div>'''
             
     except Exception as e:
+        print(f"[JOB {job_id}] EXCEPTION: {str(e)}")
         jobs[job_id]['status'] = 'failed'
         jobs[job_id]['output'] += f"<br>Error: {str(e)}"
 
