@@ -24,7 +24,7 @@ function Wait-ARIJob {
 
     $c = 0
     $TimeoutMinutes = 10
-    $PerJobTimeoutMinutes = 5  # Individual job timeout
+    $PerJobTimeoutMinutes = 2  # Reduced to 2 minutes for faster testing - Individual job timeout
     $StartTime = Get-Date
     $MaxDuration = New-TimeSpan -Minutes $TimeoutMinutes
     $PerJobMaxDuration = New-TimeSpan -Minutes $PerJobTimeoutMinutes
@@ -38,11 +38,15 @@ function Wait-ARIJob {
     }
     
     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Found $($jb.Count) jobs to monitor. Per-job timeout: $PerJobTimeoutMinutes minutes")
+    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job monitoring start time: $($StartTime.ToString('yyyy-MM-dd HH:mm:ss'))")
     
-    # Track when each job started
+    # Track when each job started - use job NAME as key since IDs might change
+    # Assume all jobs started at the same time (when monitoring begins) since PSBeginTime may not be reliable
     $jobStartTimes = @{}
     foreach ($job in $jb) {
-        $jobStartTimes[$job.Id] = if ($job.PSBeginTime) { $job.PSBeginTime } else { Get-Date }
+        $jobStartTime = if ($job.PSBeginTime) { $job.PSBeginTime } else { $StartTime }
+        $jobStartTimes[$job.Name] = $jobStartTime
+        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job $($job.Name) start time: $($jobStartTime.ToString('yyyy-MM-dd HH:mm:ss'))")
     }
 
     while ($true) {
@@ -56,15 +60,20 @@ function Wait-ARIJob {
         $runningJobs = $jb | Where-Object { $_.State -eq 'Running' }
         $failedJobs = $jb | Where-Object { $_.State -in @('Failed', 'Stopped', 'Blocked') }
         
-        # Check for individual job timeouts
+        # Check for individual job timeouts - use job NAME as key
         $timedOutJobs = @()
+        $currentTime = Get-Date
         foreach ($job in $runningJobs) {
-            if ($jobStartTimes.ContainsKey($job.Id)) {
-                $jobRunTime = (Get-Date) - $jobStartTimes[$job.Id]
+            if ($jobStartTimes.ContainsKey($job.Name)) {
+                $jobRunTime = $currentTime - $jobStartTimes[$job.Name]
+                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Checking $($job.Name): Runtime = $([math]::Round($jobRunTime.TotalMinutes, 2)) min (timeout at $PerJobTimeoutMinutes min)")
                 if ($jobRunTime -gt $PerJobMaxDuration) {
                     $timedOutJobs += $job
-                    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"INDIVIDUAL JOB TIMEOUT: $($job.Name) has been running for $([math]::Round($jobRunTime.TotalMinutes, 1)) minutes")
+                    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"⏰ INDIVIDUAL JOB TIMEOUT: $($job.Name) has been running for $([math]::Round($jobRunTime.TotalMinutes, 1)) minutes")
+                    Write-Warning "Job timeout: $($job.Name) exceeded $PerJobTimeoutMinutes minute limit"
                 }
+            } else {
+                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"WARNING: No start time tracked for job: $($job.Name)")
             }
         }
         
