@@ -23,8 +23,11 @@ function Wait-ARIJob {
     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Starting Jobs Collector.')
 
     $c = 0
-    $TimeoutMinutes = 10
-    $PerJobTimeoutMinutes = 1  # AGGRESSIVE: 1 minute timeout for immediate testing
+    # ===== ADJUSTED FOR TESTING =====
+    $TimeoutMinutes = 15  # Total timeout for all jobs
+    $PerJobTimeoutMinutes = 3  # Per-job timeout (increased from 1 to 3 minutes for testing)
+    Write-Host "⏱️  TIMEOUT SETTINGS: Total=$TimeoutMinutes min, Per-Job=$PerJobTimeoutMinutes min" -ForegroundColor Yellow
+    # ===== END ADJUSTMENT =====
     $StartTime = Get-Date
     $MaxDuration = New-TimeSpan -Minutes $TimeoutMinutes
     $PerJobMaxDuration = New-TimeSpan -Minutes $PerJobTimeoutMinutes
@@ -50,16 +53,33 @@ function Wait-ARIJob {
         Write-Host "  ⏰ $($job.Name): Start=$($jobStartTime.ToString('HH:mm:ss')) Timeout=$($jobStartTime.AddMinutes($PerJobTimeoutMinutes).ToString('HH:mm:ss'))" -ForegroundColor Gray
     }
 
+    Write-Host "🔍 ENTERING MONITORING LOOP - Starting while(true) at $((Get-Date).ToString('HH:mm:ss'))" -ForegroundColor Magenta
+    $loopIteration = 0
+    
     while ($true) {
+        $loopIteration++
+        Write-Host "🔄 LOOP ITERATION #$loopIteration at $((Get-Date).ToString('HH:mm:ss'))" -ForegroundColor Cyan
+        
+        # Output visible progress marker every iteration for web interface
+        $elapsedSoFar = (Get-Date) - $StartTime
+        $minutes = [math]::Floor($elapsedSoFar.TotalMinutes)
+        $seconds = [math]::Floor($elapsedSoFar.TotalSeconds % 60)
+        Write-Host "⏱️  Elapsed Time: ${minutes}m ${seconds}s" -ForegroundColor Yellow
+        
+        Write-Host "   Calling Get-Job..." -ForegroundColor Gray
         $jb = get-job -Name $JobNames -ErrorAction SilentlyContinue
+        Write-Host "   Get-Job returned: $($jb.Count) jobs" -ForegroundColor Gray
         
         if ($null -eq $jb) {
+            Write-Host "❌ Jobs disappeared during monitoring!" -ForegroundColor Red
             Write-Warning "Jobs disappeared during monitoring!"
             break
         }
         
+        Write-Host "   Filtering jobs by state..." -ForegroundColor Gray
         $runningJobs = $jb | Where-Object { $_.State -eq 'Running' }
         $failedJobs = $jb | Where-Object { $_.State -in @('Failed', 'Stopped', 'Blocked') }
+        Write-Host "   Running: $($runningJobs.Count) | Failed: $($failedJobs.Count)" -ForegroundColor Gray
         
         # Check for individual job timeouts - use job NAME as key
         $timedOutJobs = @()
@@ -130,6 +150,9 @@ function Wait-ARIJob {
         
         $c = (((($jb.count - $runningJobs.Count) / $jb.Count) * 100))
         Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"$JobType Jobs Still Running: "+[string]$runningJobs.count)
+        
+        # Output progress to console for web interface visibility
+        Write-Host ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"$JobType Jobs Still Running: "+[string]$runningJobs.count) -ForegroundColor Cyan
         
         # Log detailed job status every 30 seconds (6 loops of 5 seconds)
         $loopCount = [math]::Floor($ElapsedTime.TotalSeconds / $LoopTime)

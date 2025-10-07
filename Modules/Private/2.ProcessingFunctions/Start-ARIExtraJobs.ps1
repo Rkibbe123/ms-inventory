@@ -42,11 +42,16 @@ function Start-ARIExtraJobs {
 
     <######################################################### DRAW IO DIAGRAM JOB ######################################################################>
 
+    # ===== TEMPORARILY COMMENTED OUT FOR TESTING =====
+    Write-Host "🧪 TESTING MODE: Skipping Draw.io Diagram Job" -ForegroundColor Yellow
+    <#
     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Checking if Draw.io Diagram Job Should be Run.')
     if (!$SkipDiagram.IsPresent) {
         Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Starting Draw.io Diagram Processing Job.')
         Invoke-ARIDrawIOJob -Subscriptions $Subscriptions -Resources $Resources -Advisories $Advisories -DDFile $DDFile -DiagramCache $DiagramCache -FullEnv $FullEnv -ResourceContainers $ResourceContainers -Automation $Automation -ARIModule $ARIModule
     }
+    #>
+    # ===== END TEMPORARY COMMENT =====
 
     <######################################################### VISIO DIAGRAM JOB ######################################################################>
     <#
@@ -82,15 +87,23 @@ function Start-ARIExtraJobs {
 
     <######################################################### SECURITY CENTER JOB ######################################################################>
 
+    # ===== TEMPORARILY COMMENTED OUT FOR TESTING =====
+    Write-Host "🧪 TESTING MODE: Skipping Security Center Job" -ForegroundColor Yellow
+    <#
     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Checking If Should Run Security Center Job.')
     if (![string]::IsNullOrEmpty($SecurityCenter))
         {
             Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Starting Security Processing Job.')
             Invoke-ARISecurityCenterJob -Subscriptions $Subscriptions -Automation $Automation -Resources $Resources -SecurityCenter $SecurityCenter -ARIModule $ARIModule
         }
+    #>
+    # ===== END TEMPORARY COMMENT =====
 
     <######################################################### POLICY JOB ######################################################################>
 
+    # ===== TEMPORARILY COMMENTED OUT FOR TESTING =====
+    Write-Host "🧪 TESTING MODE: Skipping Policy Job" -ForegroundColor Yellow
+    <#
     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Checking If Should Run Policy Job.')
     if (!$SkipPolicy.IsPresent) {
         if (![string]::IsNullOrEmpty($PolicyAssign) -and ![string]::IsNullOrEmpty($PolicyDef))
@@ -99,9 +112,14 @@ function Start-ARIExtraJobs {
                 Invoke-ARIPolicyJob -Subscriptions $Subscriptions -PolicySetDef $PolicySetDef -PolicyAssign $PolicyAssign -PolicyDef $PolicyDef -ARIModule $ARIModule -Automation $Automation
             }
     }
+    #>
+    # ===== END TEMPORARY COMMENT =====
 
     <######################################################### ADVISORY JOB ######################################################################>
 
+    # ===== TEMPORARILY COMMENTED OUT FOR TESTING =====
+    Write-Host "🧪 TESTING MODE: Skipping Advisory Job" -ForegroundColor Yellow
+    <#
     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Checking If Should Run Advisory Job.')
     if (!$SkipAdvisory.IsPresent) {
         if (![string]::IsNullOrEmpty($Advisories))
@@ -110,9 +128,12 @@ function Start-ARIExtraJobs {
                 Invoke-ARIAdvisoryJob -Advisories $Advisories -ARIModule $ARIModule -Automation $Automation
             }
     }
+    #>
+    # ===== END TEMPORARY COMMENT =====
 
     <######################################################### SUBSCRIPTIONS JOB ######################################################################>
 
     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Starting Subscriptions Processing job.')
+    Write-Host "✅ Running Subscriptions Processing job (required for output)" -ForegroundColor Green
     Invoke-ARISubJob -Subscriptions $Subscriptions -Automation $Automation -Resources $Resources -CostData $CostData -ARIModule $ARIModule
 }
