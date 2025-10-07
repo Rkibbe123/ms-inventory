@@ -18,17 +18,22 @@ COPY app /app/app
 COPY test-auth.ps1 /app/test-auth.ps1
 
 # ===== TESTING MODE: Copy local modified modules instead of using PowerShell Gallery =====
-# Copy our locally modified AzureResourceInventory module
-COPY Modules /usr/local/share/powershell/Modules/AzureResourceInventory/3.6.11/modules
-COPY *.ps* /usr/local/share/powershell/Modules/AzureResourceInventory/3.6.11/
+# Copy our locally modified AzureResourceInventory module (ensure path version matches ModuleVersion in AzureResourceInventory.psd1)
+COPY Modules /usr/local/share/powershell/Modules/AzureResourceInventory/3.6.9/modules
+COPY *.ps* /usr/local/share/powershell/Modules/AzureResourceInventory/3.6.9/
 # ===== END TESTING MODE =====
 
 # Preinstall Az modules and ARI at build time for faster startup
 RUN pwsh -NoProfile -Command \
-    "Set-PSRepository -Name 'PSGallery' -InstallationPolicy Trusted; \
-     Install-Module -Name Az.Accounts -Force -AcceptLicense -Scope AllUsers; \
-     Install-Module -Name Az.Resources -Force -AcceptLicense -Scope AllUsers; \
-     Install-Module -Name Az.Storage -Force -AcceptLicense -Scope AllUsers"
+  "Set-PSRepository -Name 'PSGallery' -InstallationPolicy Trusted; \
+   Write-Host 'Installing required Az.* modules...'; \
+   Install-Module -Name Az.Accounts -Force -AcceptLicense -Scope AllUsers; \
+   Install-Module -Name Az.Resources -Force -AcceptLicense -Scope AllUsers; \
+   Install-Module -Name Az.Storage -Force -AcceptLicense -Scope AllUsers; \
+   Install-Module -Name Az.ResourceGraph -Force -AcceptLicense -Scope AllUsers; \
+   Install-Module -Name Az.Compute -Force -AcceptLicense -Scope AllUsers; \
+   Write-Host 'Installing ImportExcel dependency...'; \
+   Install-Module -Name ImportExcel -Force -AcceptLicense -Scope AllUsers"
      
 # Note: Removed AzureResourceInventory from Install-Module since we're using local copy
 
