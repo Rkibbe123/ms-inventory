@@ -1,0 +1,19 @@
+# Quick Deploy Commands for v6.38
+
+# Deploy to Azure Container App
+.\deploy-v6.38.ps1
+
+# OR manually:
+az containerapp update --name ms-inventory --resource-group rg-rkibbe-2470 --image rkazureinventory.azurecr.io/azure-resource-inventory:v6.38
+
+# After deployment, start a scan:
+start https://azure-resource-inventory.ambitiousbeach-c62b6a92.eastus.azurecontainerapps.io
+
+# Monitor progress:
+.\watch-progress.ps1
+
+# What to look for in logs:
+# ✅ "🧪 TESTING MODE: Only processing Compute module"
+# ✅ "Creating Job: Compute" (should be just 1 job)
+# ✅ Completes in 3-5 minutes
+# ❌ If you see 16+ jobs, the update didn't work

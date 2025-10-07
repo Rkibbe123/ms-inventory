@@ -17,13 +17,20 @@ WORKDIR /app
 COPY app /app/app
 COPY test-auth.ps1 /app/test-auth.ps1
 
+# ===== TESTING MODE: Copy local modified modules instead of using PowerShell Gallery =====
+# Copy our locally modified AzureResourceInventory module
+COPY Modules /usr/local/share/powershell/Modules/AzureResourceInventory/3.6.11/modules
+COPY *.ps* /usr/local/share/powershell/Modules/AzureResourceInventory/3.6.11/
+# ===== END TESTING MODE =====
+
 # Preinstall Az modules and ARI at build time for faster startup
 RUN pwsh -NoProfile -Command \
     "Set-PSRepository -Name 'PSGallery' -InstallationPolicy Trusted; \
      Install-Module -Name Az.Accounts -Force -AcceptLicense -Scope AllUsers; \
      Install-Module -Name Az.Resources -Force -AcceptLicense -Scope AllUsers; \
-     Install-Module -Name Az.Storage -Force -AcceptLicense -Scope AllUsers; \
-     Install-Module -Name AzureResourceInventory -Force -AcceptLicense -Scope AllUsers"
+     Install-Module -Name Az.Storage -Force -AcceptLicense -Scope AllUsers"
+     
+# Note: Removed AzureResourceInventory from Install-Module since we're using local copy
 
 # Default output directory inside container
 ENV ARI_OUTPUT_DIR=/data/AzureResourceInventory
