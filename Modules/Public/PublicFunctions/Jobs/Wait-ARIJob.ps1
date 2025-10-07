@@ -24,10 +24,12 @@ function Wait-ARIJob {
 
     $c = 0
     $TimeoutMinutes = 10
-    $PerJobTimeoutMinutes = 2  # Reduced to 2 minutes for faster testing - Individual job timeout
+    $PerJobTimeoutMinutes = 1  # AGGRESSIVE: 1 minute timeout for immediate testing
     $StartTime = Get-Date
     $MaxDuration = New-TimeSpan -Minutes $TimeoutMinutes
     $PerJobMaxDuration = New-TimeSpan -Minutes $PerJobTimeoutMinutes
+    
+    Write-Host "🚨 TIMEOUT MONITOR INITIALIZED - Per-job limit: $PerJobTimeoutMinutes minute(s)" -ForegroundColor Yellow
     
     # Get initial job count and track start times
     $jb = get-job -Name $JobNames -ErrorAction SilentlyContinue
@@ -37,16 +39,15 @@ function Wait-ARIJob {
         return
     }
     
+    Write-Host "📊 Found $($jb.Count) jobs to monitor at $($StartTime.ToString('HH:mm:ss'))" -ForegroundColor Cyan
     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Found $($jb.Count) jobs to monitor. Per-job timeout: $PerJobTimeoutMinutes minutes")
-    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job monitoring start time: $($StartTime.ToString('yyyy-MM-dd HH:mm:ss'))")
     
     # Track when each job started - use job NAME as key since IDs might change
-    # Assume all jobs started at the same time (when monitoring begins) since PSBeginTime may not be reliable
     $jobStartTimes = @{}
     foreach ($job in $jb) {
         $jobStartTime = if ($job.PSBeginTime) { $job.PSBeginTime } else { $StartTime }
         $jobStartTimes[$job.Name] = $jobStartTime
-        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job $($job.Name) start time: $($jobStartTime.ToString('yyyy-MM-dd HH:mm:ss'))")
+        Write-Host "  ⏰ $($job.Name): Start=$($jobStartTime.ToString('HH:mm:ss')) Timeout=$($jobStartTime.AddMinutes($PerJobTimeoutMinutes).ToString('HH:mm:ss'))" -ForegroundColor Gray
     }
 
     while ($true) {
@@ -63,12 +64,21 @@ function Wait-ARIJob {
         # Check for individual job timeouts - use job NAME as key
         $timedOutJobs = @()
         $currentTime = Get-Date
+        
+        # Force output on every loop - Write-Host cannot be suppressed
+        $firstJobName = $runningJobs[0].Name
+        if ($jobStartTimes.ContainsKey($firstJobName)) {
+            $firstJobRunTime = $currentTime - $jobStartTimes[$firstJobName]
+            Write-Host "⏱️ CHECK @ $($currentTime.ToString('HH:mm:ss')): $firstJobName runtime=$([math]::Round($firstJobRunTime.TotalSeconds,0))s / $($PerJobTimeoutMinutes*60)s limit" -ForegroundColor DarkYellow
+        }
+        
         foreach ($job in $runningJobs) {
             if ($jobStartTimes.ContainsKey($job.Name)) {
                 $jobRunTime = $currentTime - $jobStartTimes[$job.Name]
-                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Checking $($job.Name): Runtime = $([math]::Round($jobRunTime.TotalMinutes, 2)) min (timeout at $PerJobTimeoutMinutes min)")
+                
                 if ($jobRunTime -gt $PerJobMaxDuration) {
                     $timedOutJobs += $job
+                    Write-Host "🔥 TIMEOUT! $($job.Name) exceeded $PerJobTimeoutMinutes min - runtime: $([math]::Round($jobRunTime.TotalMinutes, 1)) min" -ForegroundColor Red
                     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"⏰ INDIVIDUAL JOB TIMEOUT: $($job.Name) has been running for $([math]::Round($jobRunTime.TotalMinutes, 1)) minutes")
                     Write-Warning "Job timeout: $($job.Name) exceeded $PerJobTimeoutMinutes minute limit"
                 }
@@ -79,11 +89,13 @@ function Wait-ARIJob {
         
         # Stop timed out jobs
         if ($timedOutJobs.Count -gt 0) {
-            Write-Warning "Stopping $($timedOutJobs.Count) jobs that exceeded $PerJobTimeoutMinutes minute timeout"
+            Write-Host "🛑 STOPPING $($timedOutJobs.Count) TIMED-OUT JOBS:" -ForegroundColor Red
             foreach ($job in $timedOutJobs) {
+                Write-Host "   Stopping: $($job.Name)" -ForegroundColor Red
                 Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Stopping stuck job: $($job.Name)")
                 $job | Stop-Job -ErrorAction SilentlyContinue
             }
+            Write-Warning "Stopped $($timedOutJobs.Count) jobs that exceeded $PerJobTimeoutMinutes minute timeout"
         }
         
         # Exit if no more jobs are running
