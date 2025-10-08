@@ -51,15 +51,9 @@ function Start-ARIProcessJob {
     $ParentPath = (get-item $PSScriptRoot).parent.parent
     $InventoryModulesPath = Join-Path $ParentPath 'Public' 'InventoryModules'
     
-    # ===== TEMPORARY: COMMENT OUT TO TEST SINGLE MODULE =====
-    # Original line: $ModuleFolders = Get-ChildItem -Path $InventoryModulesPath -Directory
-    # TESTING: Only run Compute module to test end-to-end
-    Write-Host "🧪 TESTING MODE: Only processing Compute module for quick validation" -ForegroundColor Yellow
-    $ModuleFolders = Get-ChildItem -Path $InventoryModulesPath -Directory | Where-Object { $_.Name -eq 'Compute' }
-    
-    # COMMENTED OUT - Original full processing of all modules:
-    # $ModuleFolders = Get-ChildItem -Path $InventoryModulesPath -Directory
-    # ===== END TEMPORARY MODIFICATION =====
+    # Process all resource type modules for comprehensive inventory
+    $ModuleFolders = Get-ChildItem -Path $InventoryModulesPath -Directory
+    Write-Host "📊 Processing all $($ModuleFolders.Count) resource type modules for complete inventory" -ForegroundColor Green
 
     $JobLoop = 1
     $TotalFolders = $ModuleFolders.count

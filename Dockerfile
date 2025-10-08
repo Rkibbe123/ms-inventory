@@ -19,8 +19,10 @@ COPY test-auth.ps1 /app/test-auth.ps1
 
 # ===== TESTING MODE: Copy local modified modules instead of using PowerShell Gallery =====
 # Copy our locally modified AzureResourceInventory module (ensure path version matches ModuleVersion in AzureResourceInventory.psd1)
+# First copy the module definition files
+COPY AzureResourceInventory.psd1 AzureResourceInventory.psm1 /usr/local/share/powershell/Modules/AzureResourceInventory/3.6.9/
+# Then copy the Modules subdirectory - use lowercase 'modules' to match what .psm1 expects
 COPY Modules /usr/local/share/powershell/Modules/AzureResourceInventory/3.6.9/modules
-COPY *.ps* /usr/local/share/powershell/Modules/AzureResourceInventory/3.6.9/
 # ===== END TESTING MODE =====
 
 # Preinstall Az modules and ARI at build time for faster startup
