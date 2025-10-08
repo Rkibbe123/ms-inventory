@@ -32,6 +32,19 @@ function Start-ARIExcelJob {
     Write-Host 'Supported Resource Types: ' -NoNewline -ForegroundColor Green
     Write-Host $ModulesCount -ForegroundColor Cyan
 
+    # Create initial Excel file to ensure it exists before modules try to append
+    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Creating initial Excel file: $File")
+    try {
+        # Create a minimal initial worksheet so the file exists
+        @([PSCustomObject]@{Info='Azure Resource Inventory Report'}) | 
+            Export-Excel -Path $File -WorksheetName 'Info' -AutoSize -TableStyle $TableStyle
+        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Initial Excel file created successfully.')
+    }
+    catch {
+        Write-Error "Failed to create initial Excel file: $_"
+        throw
+    }
+
     $Lops = $ModulesCount
     $ReportCounter = 0
 

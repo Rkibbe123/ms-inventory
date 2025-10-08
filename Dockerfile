@@ -1,9 +1,10 @@
 FROM mcr.microsoft.com/powershell:lts-ubuntu-22.04
 
-# Install system deps, Python, and Azure CLI
+# Install system deps, Python, Azure CLI, and graphics libraries for Excel charts
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      python3 python3-pip ca-certificates curl gnupg lsb-release software-properties-common jq && \
+      python3 python3-pip ca-certificates curl gnupg lsb-release software-properties-common jq \
+      libgdiplus libc6-dev && \
     # Install Azure CLI
     curl -sL https://aka.ms/InstallAzureCLIDeb | bash && \
     rm -rf /var/lib/apt/lists/*

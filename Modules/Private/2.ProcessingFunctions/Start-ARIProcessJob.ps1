@@ -27,8 +27,8 @@ function Start-ARIProcessJob {
         {$_ -le 12500}
             {
                 Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Regular Size Environment. Jobs will be run in parallel.')
-                $EnvSizeLooper = 16  # v7.8: Run ALL 16 jobs at once (user request for full parallelism)
-                Write-Host "⚙️  Parallel job limit set to $EnvSizeLooper (v7.8: ALL jobs run simultaneously - no batching)" -ForegroundColor Cyan
+                $EnvSizeLooper = 8  # v7.9: Back to 8 - Get-Job hangs with 16 jobs, 8 is the sweet spot
+                Write-Host "⚙️  Parallel job limit set to $EnvSizeLooper (v7.9: optimized - 16 caused Get-Job hangs)" -ForegroundColor Cyan
             }
         {$_ -gt 12500 -and $_ -le 50000}
             {
@@ -60,8 +60,20 @@ function Start-ARIProcessJob {
     $JobLoop = 1
     $TotalFolders = $ModuleFolders.count
 
+    # v7.10: Debug logging to verify resource count before JSON conversion
+    $ResourceCount = $Resources.count
+    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Resources received for processing: '+ $ResourceCount)
+    Write-Host "🔍 Preparing to process $ResourceCount resources across $TotalFolders modules" -ForegroundColor Cyan
+
     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Converting Resource data to JSON for Jobs')
     $NewResources = ($Resources | ConvertTo-Json -Depth 40 -Compress)
+
+    # v7.10: Verify JSON conversion didn't break
+    $JsonLength = $NewResources.Length
+    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'JSON string length: '+ $JsonLength + ' characters')
+    if ($JsonLength -lt 100) {
+        Write-Host "⚠️  WARNING: JSON string suspiciously short ($JsonLength chars) - resources may be empty!" -ForegroundColor Yellow
+    }
 
     Remove-Variable -Name Resources
     Clear-ARIMemory

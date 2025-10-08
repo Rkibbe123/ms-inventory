@@ -127,6 +127,11 @@ Function Start-ARIGraphExtraction {
             $ContainerCount = $ResourceContainers.count
             Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Number of Resource Containers: '+ $ContainerCount)
 
+            # v7.10: Add debug logging for resource count
+            $ResourceCount = $Resources.count
+            Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Number of Resources Extracted: '+ $ResourceCount)
+            Write-Host "📊 Extracted $ResourceCount total resources from Azure" -ForegroundColor Cyan
+
             if (!($SkipAdvisory.IsPresent))
                 {
                     $GraphQuery = "advisorresources $RGQueryExtension $MGQueryExtension | where properties.impact in~ ('Medium','High') | order by id asc"
