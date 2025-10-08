@@ -56,7 +56,20 @@ function Start-ARIProcessOrchestration {
         else
             {
                 $JobNames = (Get-Job | Where-Object {$_.name -like 'ResourceJob_*'}).Name
-                Wait-ARIJob -JobNames $JobNames -JobType 'Resource' -LoopTime 5
+                
+                # v7.7 FIX: Check if jobs exist before calling Wait-ARIJob
+                # Start-ARIProcessJob now handles batching internally and cleans up jobs
+                # So this check may find zero jobs remaining
+                if ($JobNames -and $JobNames.Count -gt 0) {
+                    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Found $($JobNames.Count) remaining jobs to wait for")
+                    Wait-ARIJob -JobNames $JobNames -JobType 'Resource' -LoopTime 5
+                    
+                    # Clean up any remaining jobs after Wait-ARIJob
+                    Build-ARICacheFiles -DefaultPath $DefaultPath -JobNames $JobNames
+                }
+                else {
+                    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'No remaining jobs found - Start-ARIProcessJob handled all batches internally')
+                }
             }
 
         if ($Automation.IsPresent)
@@ -67,8 +80,6 @@ function Start-ARIProcessOrchestration {
             {
                 Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Finished Waiting for Resource Jobs.')
             }
-
-        Build-ARICacheFiles -DefaultPath $DefaultPath -JobNames $JobNames
 
         Write-Progress -activity 'Azure Inventory' -Status "60% Complete." -PercentComplete 60 -CurrentOperation "Completed Data Processing Phase.."
 

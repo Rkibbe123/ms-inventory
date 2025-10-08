@@ -27,8 +27,8 @@ function Start-ARIProcessJob {
         {$_ -le 12500}
             {
                 Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Regular Size Environment. Jobs will be run in parallel.')
-                $EnvSizeLooper = 8  # v7.5: Increased from 5 to 8 with upgraded container (2 cores, 4GB RAM)
-                Write-Host "⚙️  Parallel job limit set to $EnvSizeLooper (v7.5: optimized for upgraded 2-core container)" -ForegroundColor Cyan
+                $EnvSizeLooper = 16  # v7.8: Run ALL 16 jobs at once (user request for full parallelism)
+                Write-Host "⚙️  Parallel job limit set to $EnvSizeLooper (v7.8: ALL jobs run simultaneously - no batching)" -ForegroundColor Cyan
             }
         {$_ -gt 12500 -and $_ -le 50000}
             {
