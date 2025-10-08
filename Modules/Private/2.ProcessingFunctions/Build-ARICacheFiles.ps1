@@ -40,7 +40,7 @@ function Build-ARICacheFiles {
                     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Creating Cache File: '+ $JobFileName)
                     $TempJob | ConvertTo-Json -Depth 40 | Out-File $JobFileName
                 }
-            Remove-Job -Name $Job
+            Remove-Job -Name $Job -Force -ErrorAction SilentlyContinue
             Remove-Variable -Name TempJob
 
             $Counter++

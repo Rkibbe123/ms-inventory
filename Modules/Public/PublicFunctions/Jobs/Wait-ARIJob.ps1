@@ -23,11 +23,12 @@ function Wait-ARIJob {
     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Starting Jobs Collector.')
 
     $c = 0
-    # ===== ADJUSTED FOR TESTING =====
-    $TimeoutMinutes = 15  # Total timeout for all jobs
-    $PerJobTimeoutMinutes = 3  # Per-job timeout (increased from 1 to 3 minutes for testing)
-    Write-Host "⏱️  TIMEOUT SETTINGS: Total=$TimeoutMinutes min, Per-Job=$PerJobTimeoutMinutes min" -ForegroundColor Yellow
-    # ===== END ADJUSTMENT =====
+    # ===== PRODUCTION SETTINGS =====
+    $TimeoutMinutes = 20  # Total timeout for all jobs (increased from 15 to 20)
+    $PerJobTimeoutMinutes = 5  # Per-job timeout (5 minutes for complex resource processing)
+    $GetJobTimeout = 10  # Timeout in seconds for Get-Job cmdlet itself
+    Write-Host "⏱️  TIMEOUT SETTINGS: Total=$TimeoutMinutes min, Per-Job=$PerJobTimeoutMinutes min, Get-Job=$GetJobTimeout sec" -ForegroundColor Yellow
+    # ===== END SETTINGS =====
     $StartTime = Get-Date
     $MaxDuration = New-TimeSpan -Minutes $TimeoutMinutes
     $PerJobMaxDuration = New-TimeSpan -Minutes $PerJobTimeoutMinutes
@@ -55,6 +56,9 @@ function Wait-ARIJob {
 
     Write-Host "🔍 ENTERING MONITORING LOOP - Starting while(true) at $((Get-Date).ToString('HH:mm:ss'))" -ForegroundColor Magenta
     $loopIteration = 0
+    $lastCompletionCount = 0
+    $iterationsSinceProgress = 0
+    $maxIterationsWithoutProgress = 20  # v7.4: If no job completes in 20 iterations (~3 min), force timeout
     
     while ($true) {
         $loopIteration++
@@ -67,43 +71,103 @@ function Wait-ARIJob {
         Write-Host "⏱️  Elapsed Time: ${minutes}m ${seconds}s" -ForegroundColor Yellow
         
         Write-Host "   Calling Get-Job..." -ForegroundColor Gray
-        $jb = get-job -Name $JobNames -ErrorAction SilentlyContinue
+        
+        # Protect against Get-Job hanging - use timeout mechanism
+        $getJobScriptBlock = { 
+            param($JobNames)
+            Get-Job -Name $JobNames -ErrorAction SilentlyContinue 
+        }
+        
+        $getJobJob = Start-Job -ScriptBlock $getJobScriptBlock -ArgumentList (,$JobNames)
+        $getJobCompleted = Wait-Job -Job $getJobJob -Timeout $GetJobTimeout
+        
+        if ($null -eq $getJobCompleted) {
+            Write-Host "⚠️  WARNING: Get-Job hung for $GetJobTimeout seconds! Force-stopping and retrying..." -ForegroundColor Red
+            Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Get-Job cmdlet hung - stopping after $GetJobTimeout sec timeout")
+            Stop-Job -Job $getJobJob -ErrorAction SilentlyContinue
+            Remove-Job -Job $getJobJob -Force -ErrorAction SilentlyContinue
+            
+            # Try one more time with direct call
+            Write-Host "   Attempting direct Get-Job call..." -ForegroundColor Gray
+            $jb = Get-Job -Name $JobNames -ErrorAction SilentlyContinue
+        } else {
+            $jb = Receive-Job -Job $getJobJob
+            Remove-Job -Job $getJobJob -Force -ErrorAction SilentlyContinue
+        }
+        
         Write-Host "   Get-Job returned: $($jb.Count) jobs" -ForegroundColor Gray
         
-        if ($null -eq $jb) {
-            Write-Host "❌ Jobs disappeared during monitoring!" -ForegroundColor Red
-            Write-Warning "Jobs disappeared during monitoring!"
+        # If Get-Job returns null or empty, check if jobs completed or disappeared
+        if ($null -eq $jb -or $jb.Count -eq 0) {
+            Write-Host "   ℹ️  No jobs found in current query" -ForegroundColor Yellow
+            # This is normal if all jobs completed quickly - just exit the monitoring loop
+            Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'All jobs completed or cleaned up')
             break
         }
         
         Write-Host "   Filtering jobs by state..." -ForegroundColor Gray
         $runningJobs = $jb | Where-Object { $_.State -eq 'Running' }
         $failedJobs = $jb | Where-Object { $_.State -in @('Failed', 'Stopped', 'Blocked') }
-        Write-Host "   Running: $($runningJobs.Count) | Failed: $($failedJobs.Count)" -ForegroundColor Gray
+        $completedJobs = $jb | Where-Object { $_.State -eq 'Completed' }
+        Write-Host "   Running: $($runningJobs.Count) | Failed: $($failedJobs.Count) | Completed: $($completedJobs.Count)" -ForegroundColor Gray
+        
+        # v7.4: Track progress - detect if jobs are completing or all stuck
+        if ($completedJobs.Count -gt $lastCompletionCount) {
+            Write-Host "   ✅ Progress detected: $($completedJobs.Count - $lastCompletionCount) new completions!" -ForegroundColor Green
+            $lastCompletionCount = $completedJobs.Count
+            $iterationsSinceProgress = 0
+        } else {
+            $iterationsSinceProgress++
+            if ($iterationsSinceProgress -ge $maxIterationsWithoutProgress) {
+                Write-Host "   ⚠️  NO PROGRESS: $iterationsSinceProgress iterations without any job completion!" -ForegroundColor Red
+                Write-Warning "STUCK DETECTION: No jobs completed in $iterationsSinceProgress iterations (~$([math]::Round($iterationsSinceProgress * 10 / 60, 1)) minutes). Jobs may be deadlocked."
+                Write-Host "   🛑 Force-stopping all running jobs due to suspected deadlock..." -ForegroundColor Red
+                foreach ($job in $runningJobs) {
+                    Write-Host "      Stopping: $($job.Name)" -ForegroundColor Red
+                    $job | Stop-Job -ErrorAction SilentlyContinue
+                }
+                break
+            }
+        }
         
         # Check for individual job timeouts - use job NAME as key
         $timedOutJobs = @()
         $currentTime = Get-Date
         
-        # Force output on every loop - Write-Host cannot be suppressed
-        $firstJobName = $runningJobs[0].Name
-        if ($jobStartTimes.ContainsKey($firstJobName)) {
-            $firstJobRunTime = $currentTime - $jobStartTimes[$firstJobName]
-            Write-Host "⏱️ CHECK @ $($currentTime.ToString('HH:mm:ss')): $firstJobName runtime=$([math]::Round($firstJobRunTime.TotalSeconds,0))s / $($PerJobTimeoutMinutes*60)s limit" -ForegroundColor DarkYellow
-        }
-        
+        # Enhanced per-job monitoring with detailed status
+        Write-Host "📊 JOB STATUS DETAILS:" -ForegroundColor Cyan
+        $jobIndex = 1
         foreach ($job in $runningJobs) {
             if ($jobStartTimes.ContainsKey($job.Name)) {
                 $jobRunTime = $currentTime - $jobStartTimes[$job.Name]
+                $percentComplete = [math]::Round(($jobRunTime.TotalSeconds / ($PerJobTimeoutMinutes * 60)) * 100, 1)
+                $statusIcon = if ($percentComplete -lt 50) { "🟢" } elseif ($percentComplete -lt 80) { "🟡" } else { "🔴" }
                 
+                Write-Host "   $statusIcon Job $jobIndex/$($runningJobs.Count): $($job.Name)" -ForegroundColor Gray
+                Write-Host "      Runtime: $([math]::Floor($jobRunTime.TotalMinutes))m $([math]::Floor($jobRunTime.TotalSeconds % 60))s / $($PerJobTimeoutMinutes)m ($percentComplete%)" -ForegroundColor Gray
+                
+                # Check for timeout
                 if ($jobRunTime -gt $PerJobMaxDuration) {
                     $timedOutJobs += $job
-                    Write-Host "🔥 TIMEOUT! $($job.Name) exceeded $PerJobTimeoutMinutes min - runtime: $([math]::Round($jobRunTime.TotalMinutes, 1)) min" -ForegroundColor Red
+                    Write-Host "      ❌ TIMEOUT EXCEEDED!" -ForegroundColor Red
                     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"⏰ INDIVIDUAL JOB TIMEOUT: $($job.Name) has been running for $([math]::Round($jobRunTime.TotalMinutes, 1)) minutes")
                     Write-Warning "Job timeout: $($job.Name) exceeded $PerJobTimeoutMinutes minute limit"
                 }
+                
+                $jobIndex++
             } else {
+                Write-Host "   ⚠️  $($job.Name) - No start time tracked" -ForegroundColor Yellow
                 Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"WARNING: No start time tracked for job: $($job.Name)")
+            }
+        }
+        
+        # Force output on every loop - Write-Host cannot be suppressed (only if jobs are running)
+        if ($runningJobs.Count -gt 0 -and $runningJobs.Count -le 5) {
+            # Show detailed check only when few jobs remain
+            $firstJobName = $runningJobs[0].Name
+            if ($jobStartTimes.ContainsKey($firstJobName)) {
+                $firstJobRunTime = $currentTime - $jobStartTimes[$firstJobName]
+                Write-Host "⏱️ CHECK @ $($currentTime.ToString('HH:mm:ss')): $firstJobName runtime=$([math]::Round($firstJobRunTime.TotalSeconds,0))s / $($PerJobTimeoutMinutes*60)s limit" -ForegroundColor DarkYellow
             }
         }
         

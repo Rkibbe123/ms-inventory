@@ -27,25 +27,27 @@ function Start-ARIProcessJob {
         {$_ -le 12500}
             {
                 Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Regular Size Environment. Jobs will be run in parallel.')
-                $EnvSizeLooper = 20
+                $EnvSizeLooper = 8  # v7.5: Increased from 5 to 8 with upgraded container (2 cores, 4GB RAM)
+                Write-Host "⚙️  Parallel job limit set to $EnvSizeLooper (v7.5: optimized for upgraded 2-core container)" -ForegroundColor Cyan
             }
         {$_ -gt 12500 -and $_ -le 50000}
             {
-                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Medium Size Environment. Jobs will be run in batches of 8.')
-                $EnvSizeLooper = 8
+                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Medium Size Environment. Jobs will be run in batches of 6.')
+                $EnvSizeLooper = 6  # v7.5: Increased from 4 to 6
+                Write-Host "⚙️  Medium environment: Jobs will be run in batches of $EnvSizeLooper" -ForegroundColor Yellow
             }
         {$_ -gt 50000}
             {
                 Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Large Environment Detected.')
-                $EnvSizeLooper = 5
-                Write-Host ('Jobs will be run in small batches to avoid CPU and Memory Overload.') -ForegroundColor Red
+                $EnvSizeLooper = 5  # v7.5: Increased from 3 to 5
+                Write-Host ('⚙️  Large environment: Jobs will be run in small batches of ' + $EnvSizeLooper + ' to avoid CPU and Memory Overload.') -ForegroundColor Red
             }
     }
 
     if ($Heavy.IsPresent -or $InTag.IsPresent)
         {
-            Write-Host ('Heavy Mode or InTag Mode Detected. Jobs will be run in small batches to avoid CPU and Memory Overload.') -ForegroundColor Red
-            $EnvSizeLooper = 5
+            Write-Host ('⚙️  Heavy Mode or InTag Mode Detected. Jobs will be run in small batches of 5 to avoid CPU and Memory Overload.') -ForegroundColor Red
+            $EnvSizeLooper = 5  # v7.5: Increased from 3 to 5 with upgraded container
         }
 
     $ParentPath = (get-item $PSScriptRoot).parent.parent

@@ -634,11 +634,20 @@ def enhance_device_code_output(line):
         url = "https://microsoft.com/devicelogin"
         enhanced = f'<div style="background: #f0f9ff; padding: 25px; border-radius: 12px; margin: 20px 0; text-align: center; border: 2px solid #0078d4;"><strong style="color: #0078d4; display: block; margin-bottom: 15px; font-size: 18px;">🔗 Click to open login page:</strong><a href="{url}" target="_blank" style="display: inline-block; background: #0078d4; color: white; padding: 18px 36px; text-decoration: none; border-radius: 10px; font-weight: bold; font-size: 16px; transition: background-color 0.3s ease; box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);" onmouseover="this.style.backgroundColor='#106ebe'" onmouseout="this.style.backgroundColor='#0078d4'">{url}</a></div>'
     elif re.search(r'\b[A-Z0-9]{6,12}\b', line) and ("code" in line.lower() or "enter" in line.lower()):
-        # Standalone device code
+        # Standalone device code - but exclude common words like "ENTERING"
         match = re.search(r'\b([A-Z0-9]{6,12})\b', line)
         if match:
             code = match.group(1)
-            enhanced = f'<div style="background: linear-gradient(135deg, #e3f2fd 0%, #f8f9ff 100%); padding: 30px; border-radius: 16px; margin: 25px auto; text-align: center; border: 2px solid #0078d4; max-width: 600px; box-shadow: 0 8px 32px rgba(0, 120, 212, 0.15);"><strong style="color: #0078d4; display: block; margin-bottom: 20px; font-size: 22px; font-weight: 600;">🔑 Your Device Authentication Code</strong><div style="background: #ffffff; padding: 20px 30px; font-size: 36px; font-weight: bold; border-radius: 12px; color: #0078d4; font-family: \'Segoe UI\', monospace; letter-spacing: 4px; box-shadow: 0 6px 20px rgba(0, 120, 212, 0.2); border: 2px solid #e3f2fd; margin: 15px 0;">{code}</div><button onclick="navigator.clipboard.writeText(\'{code}\'); this.innerHTML=\'✅ Copied!\'; setTimeout(() => this.innerHTML=\'📋 Copy Code\', 2000);" style="margin-top: 20px; background: #0078d4; color: white; border: none; padding: 15px 30px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 16px; transition: all 0.3s ease; box-shadow: 0 6px 20px rgba(0, 120, 212, 0.3);" onmouseover="this.style.backgroundColor=\'#106ebe\'; this.style.transform=\'translateY(-2px)\';" onmouseout="this.style.backgroundColor=\'#0078d4\'; this.style.transform=\'translateY(0)\';" >📋 Copy Code</button></div>'
+            # Exclude common words that might match the pattern
+            excluded_words = ['ENTERING', 'RUNNING', 'STARTING', 'TESTING', 'COMPLETE', 'ERROR', 'WARNING', 
+                            'SUCCESS', 'FAILED', 'STOPPED', 'BLOCKED', 'TIMEOUT', 'MONITOR', 'INITIALIZED']
+            
+            # Only enhance if it's not an excluded word and looks like an actual device code
+            # Real device codes typically have mixed letters and numbers or specific patterns
+            if code not in excluded_words and (any(c.isdigit() for c in code) and any(c.isalpha() for c in code)):
+                enhanced = f'<div style="background: linear-gradient(135deg, #e3f2fd 0%, #f8f9ff 100%); padding: 30px; border-radius: 16px; margin: 25px auto; text-align: center; border: 2px solid #0078d4; max-width: 600px; box-shadow: 0 8px 32px rgba(0, 120, 212, 0.15);"><strong style="color: #0078d4; display: block; margin-bottom: 20px; font-size: 22px; font-weight: 600;">🔑 Your Device Authentication Code</strong><div style="background: #ffffff; padding: 20px 30px; font-size: 36px; font-weight: bold; border-radius: 12px; color: #0078d4; font-family: \'Segoe UI\', monospace; letter-spacing: 4px; box-shadow: 0 6px 20px rgba(0, 120, 212, 0.2); border: 2px solid #e3f2fd; margin: 15px 0;">{code}</div><button onclick="navigator.clipboard.writeText(\'{code}\'); this.innerHTML=\'✅ Copied!\'; setTimeout(() => this.innerHTML=\'📋 Copy Code\', 2000);" style="margin-top: 20px; background: #0078d4; color: white; border: none; padding: 15px 30px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 16px; transition: all 0.3s ease; box-shadow: 0 6px 20px rgba(0, 120, 212, 0.3);" onmouseover="this.style.backgroundColor=\'#106ebe\'; this.style.transform=\'translateY(-2px)\';" onmouseout="this.style.backgroundColor=\'#0078d4\'; this.style.transform=\'translateY(0)\';" >📋 Copy Code</button></div>'
+            else:
+                enhanced = line + "<br>"
         else:
             enhanced = line + "<br>"
     elif "Continuing will" in line or "complete the authentication" in line:
