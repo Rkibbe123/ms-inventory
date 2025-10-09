@@ -66,7 +66,7 @@ function Start-ARIProcessJob {
     Write-Host "🔍 Preparing to process $ResourceCount resources across $TotalFolders modules" -ForegroundColor Cyan
 
     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Converting Resource data to JSON for Jobs')
-    $NewResources = ($Resources | ConvertTo-Json -Depth 40 -Compress)
+    $NewResources = ($Resources | ConvertTo-Json -Depth 40 -Compress -AsArray)
 
     # v7.10: Verify JSON conversion didn't break
     $JsonLength = $NewResources.Length
@@ -77,6 +77,22 @@ function Start-ARIProcessJob {
 
     Remove-Variable -Name Resources
     Clear-ARIMemory
+
+    # v7.17: CRITICAL ARCHITECTURE CHANGE - Write JSON to temp file instead of passing via ArgumentList
+    # PowerShell Start-Job has size limits on -ArgumentList (our 18.2 MB JSON exceeds it)
+    # Jobs were completing in 3-4 seconds (instant failure) before scriptblock could execute
+    $TempJsonFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "ari_resources_$(Get-Date -Format 'yyyyMMdd_HHmmss').json")
+    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Writing resources to temp file: $TempJsonFile")
+    
+    try {
+        $NewResources | Out-File -FilePath $TempJsonFile -Encoding UTF8 -Force
+        $FileSize = (Get-Item $TempJsonFile).Length / 1MB
+        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Temp file created: $([math]::Round($FileSize, 2)) MB")
+        Write-Host "📁 Resources written to temp file: $([math]::Round($FileSize, 2)) MB" -ForegroundColor Green
+    } catch {
+        Write-Error "Failed to write resources to temp file: $_"
+        return
+    }
 
     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Starting to Create Jobs to Process the Resources.')
 
@@ -94,14 +110,62 @@ function Start-ARIProcessJob {
             Write-Progress -Id 1 -activity "Creating Jobs" -Status "$c% Complete." -PercentComplete $c
 
             Start-Job -Name ('ResourceJob_'+$ModuleName) -ScriptBlock {
-
-                $ModuleFiles = $($args[0])
-                $Subscriptions = $($args[2])
-                $InTag = $($args[3])
-                $Resources = $($args[4]) | ConvertFrom-Json
-                $Retirements = $($args[5])
-                $Task = $($args[6])
-                $Unsupported = $($args[10])
+                
+                # v7.17: CRITICAL ARCHITECTURE CHANGE - Read JSON from file instead of ArgumentList
+                # v7.16 execution proved jobs fail before try-catch executes (ArgumentList size limit exceeded)
+                # Jobs completed in 3-4 seconds with zero logging = initialization failure, not execution failure
+                try {
+                    $FolderName = $($args[1])
+                    Write-Host "[JOB START] ========================================" -ForegroundColor Cyan
+                    Write-Host "[JOB START] Processing folder: $FolderName" -ForegroundColor Cyan
+                    Write-Host "[JOB START] Args received: $($args.Count)" -ForegroundColor Cyan
+                    
+                    $ModuleFiles = $($args[0])
+                    Write-Host "[JOB] Module files count: $($ModuleFiles.Count)" -ForegroundColor Cyan
+                    
+                    $Subscriptions = $($args[2])
+                    $InTag = $($args[3])
+                    
+                    # v7.17: Read JSON from temp file instead of receiving via ArgumentList
+                    # $args[4] now contains the temp file path, not the 18.2 MB JSON string
+                    $TempJsonFile = $($args[4])
+                    Write-Host "[JOB] Reading resources from temp file: $TempJsonFile" -ForegroundColor Yellow
+                    
+                    if (-not (Test-Path $TempJsonFile)) {
+                        throw "Temp JSON file not found: $TempJsonFile"
+                    }
+                    
+                    $JsonContent = Get-Content -Path $TempJsonFile -Raw
+                    Write-Host "[JOB] JSON file read: $([math]::Round($JsonContent.Length / 1MB, 2)) MB" -ForegroundColor Yellow
+                    Write-Host "[JOB] Deserializing JSON..." -ForegroundColor Yellow
+                    
+                    try {
+                        $Resources = $JsonContent | ConvertFrom-Json -ErrorAction Stop
+                        
+                        if ($null -eq $Resources) {
+                            Write-Host "[JOB ERROR] ❌ JSON deserialization returned null!" -ForegroundColor Red
+                            throw "JSON deserialization failed - Resources is null"
+                        }
+                        
+                        Write-Host "[JOB] ✅ Resources deserialized successfully" -ForegroundColor Green
+                        
+                        # Safely get count with null check
+                        $ResourceCount = if ($Resources) { 
+                            if ($Resources -is [Array]) { $Resources.Count } 
+                            else { 1 } 
+                        } else { 0 }
+                        
+                        Write-Host "[JOB] Resource count: $ResourceCount" -ForegroundColor Green
+                    }
+                    catch {
+                        Write-Host "[JOB ERROR] ❌ Exception during JSON deserialization: $($_.Exception.Message)" -ForegroundColor Red
+                        Write-Host "[JOB ERROR] Error details: $($_.Exception.GetType().FullName)" -ForegroundColor Red
+                        throw "JSON deserialization failed: $($_.Exception.Message)"
+                    }
+                    
+                    $Retirements = $($args[5])
+                    $Task = $($args[6])
+                    $Unsupported = $($args[10])
 
                 $job = @()
 
@@ -146,15 +210,53 @@ function Start-ARIProcessJob {
 
                         $Hashtable["$ModName"] = (get-variable -name ('ModValue' + $ModName)).Value
 
+                        # v7.16: Log each module's contribution with more detail
+                        $ModuleResult = (get-variable -name ('ModValue' + $ModName)).Value
+                        $ModuleResultCount = ($ModuleResult | Measure-Object).Count
+                        Write-Host "[JOB] Module '$ModName' returned: $ModuleResultCount items" -ForegroundColor Yellow
+                        if ($ModuleResultCount -gt 0) {
+                            Write-Host "[JOB] Module '$ModName' sample result type: $($ModuleResult[0].GetType().Name)" -ForegroundColor Gray
+                        }
+
                         Remove-Variable -Name ('ModValue' + $ModName)
                         Start-Sleep -Milliseconds 100
 
                         Remove-Variable -Name ModName
                     }
 
-                $Hashtable
+                # v7.16: Enhanced logging before returning
+                Write-Host "[JOB] ========================================" -ForegroundColor Green
+                Write-Host "[JOB] Hashtable complete with $($Hashtable.Keys.Count) keys" -ForegroundColor Green
+                Write-Host "[JOB] Keys: $($Hashtable.Keys -join ', ')" -ForegroundColor Green
+                
+                # Calculate total items across all modules
+                $TotalItems = 0
+                foreach ($key in $Hashtable.Keys) {
+                    $count = ($Hashtable[$key] | Measure-Object).Count
+                    $TotalItems += $count
+                    Write-Host "[JOB] Key '$key' has $count items" -ForegroundColor Gray
+                }
+                Write-Host "[JOB] Total items across all modules: $TotalItems" -ForegroundColor Green
+                Write-Host "[JOB END] Returning hashtable for folder: $FolderName" -ForegroundColor Cyan
+                Write-Host "[JOB END] ========================================" -ForegroundColor Cyan
 
-            } -ArgumentList $ModuleFiles, $PSScriptRoot, $Subscriptions, $InTag, $NewResources , $Retirements, 'Processing', $null, $null, $null, $Unsupported | Out-Null
+                # Return the hashtable
+                $Hashtable
+                
+                } catch {
+                    # v7.16: Catch and log ANY errors in job execution
+                    Write-Host "[JOB ERROR] ========================================" -ForegroundColor Red
+                    Write-Host "[JOB ERROR] Exception in folder: $FolderName" -ForegroundColor Red
+                    Write-Host "[JOB ERROR] Message: $($_.Exception.Message)" -ForegroundColor Red
+                    Write-Host "[JOB ERROR] Line: $($_.InvocationInfo.ScriptLineNumber)" -ForegroundColor Red
+                    Write-Host "[JOB ERROR] Stack Trace: $($_.ScriptStackTrace)" -ForegroundColor Red
+                    Write-Host "[JOB ERROR] ========================================" -ForegroundColor Red
+                    
+                    # Return empty hashtable on error so we don't crash Build-ARICacheFiles
+                    @{}
+                }
+
+            } -ArgumentList $ModuleFiles, $PSScriptRoot, $Subscriptions, $InTag, $TempJsonFile , $Retirements, 'Processing', $null, $null, $null, $Unsupported | Out-Null
 
         if($JobLoop -eq $EnvSizeLooper)
             {
@@ -173,6 +275,27 @@ function Start-ARIProcessJob {
             }
         $JobLoop ++
 
+        }
+
+        # v7.26: CRITICAL FIX - Process remaining jobs after ForEach loop completes
+        # The last batch might have fewer than 8 jobs, so Build-ARICacheFiles was never called!
+        # This is why we only got Compute and Advisor - they were in first batch of 8
+        $RemainingJobNames = (Get-Job | Where-Object {$_.name -like 'ResourceJob_*' -and $_.State -eq 'Running'}).Name
+        
+        if ($RemainingJobNames -and $RemainingJobNames.Count -gt 0) {
+            Write-Host "⏳ Waiting for final batch of $($RemainingJobNames.Count) jobs to complete..." -ForegroundColor Cyan
+            Wait-ARIJob -JobNames $RemainingJobNames -JobType 'Resource Final Batch' -LoopTime 5
+            
+            $FinalJobNames = (Get-Job | Where-Object {$_.name -like 'ResourceJob_*'}).Name
+            Write-Host "📦 Building cache files for final batch ($($FinalJobNames.Count) jobs)..." -ForegroundColor Cyan
+            Build-ARICacheFiles -DefaultPath $DefaultPath -JobNames $FinalJobNames
+        }
+
+        # v7.17: Clean up temp JSON file after all jobs complete
+        if (Test-Path $TempJsonFile) {
+            Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Removing temp JSON file: $TempJsonFile")
+            Remove-Item -Path $TempJsonFile -Force -ErrorAction SilentlyContinue
+            Write-Host "🗑️  Temp file cleaned up" -ForegroundColor Gray
         }
 
         Remove-Variable -Name NewResources

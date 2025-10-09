@@ -51,7 +51,9 @@ PowerShellVersion = '7.0'
 # ProcessorArchitecture = ''
 
 # Modules that must be imported into the global environment prior to importing this module
-RequiredModules = @('ImportExcel','Az.Accounts','Az.ResourceGraph','Az.Storage','Az.Compute')
+# v7.21: Removed ImportExcel from RequiredModules - it's installed but PowerShell can't auto-load it
+# The scripts import it manually where needed
+RequiredModules = @('Az.Accounts','Az.ResourceGraph','Az.Storage','Az.Compute')
 
 # Assemblies that must be loaded prior to importing this module
 # RequiredAssemblies = @()

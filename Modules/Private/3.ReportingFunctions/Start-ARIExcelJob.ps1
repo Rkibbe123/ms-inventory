@@ -50,20 +50,36 @@ function Start-ARIExcelJob {
 
     Foreach ($ModuleFolder in $ModuleFolders)
         {
+            Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Processing module folder: $($ModuleFolder.Name)")
             $CacheData = $null
             $ModulePath = Join-Path $ModuleFolder.FullName '*.ps1'
             $ModuleFiles = Get-ChildItem -Path $ModulePath
+            Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Found $($ModuleFiles.Count) module files in $($ModuleFolder.Name)")
 
+            Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"ReportCache path: $ReportCache")
             $CacheFiles = Get-ChildItem -Path $ReportCache -Recurse
+            Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Total cache files found: $($CacheFiles.Count)")
+            if ($CacheFiles.Count -gt 0) {
+                $CacheFileNames = ($CacheFiles | Select-Object -ExpandProperty Name) -join ', '
+                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Cache file names: $CacheFileNames")
+            }
             $JSONFileName = ($ModuleFolder.Name + '.json')
             $CacheFile = $CacheFiles | Where-Object { $_.Name -like "*$JSONFileName" }
+            Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Looking for cache file: $JSONFileName, Found: $($CacheFile.Count) matches")
 
             if ($CacheFile)
                 {
+                    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Reading cache file: $($CacheFile.FullName)")
                     $CacheFileContent = New-Object System.IO.StreamReader($CacheFile.FullName)
                     $CacheData = $CacheFileContent.ReadToEnd()
                     $CacheFileContent.Dispose()
                     $CacheData = $CacheData | ConvertFrom-Json
+                    $CacheDataProperties = ($CacheData | Get-Member -MemberType NoteProperty).Count
+                    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Cache data loaded with $CacheDataProperties properties")
+                }
+            else
+                {
+                    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"WARNING: No cache file found for module folder: $($ModuleFolder.Name)")
                 }
 
             Foreach ($Module in $ModuleFiles)
@@ -80,6 +96,7 @@ function Start-ARIExcelJob {
                     $SmaResources = $CacheData.$ModName
 
                     $ModuleResourceCount = $SmaResources.count
+                    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Module '$ModName': Resource count = $ModuleResourceCount")
 
                     if ($ModuleResourceCount -gt 0)
                     {

@@ -57,11 +57,11 @@ function Start-ARIProcessOrchestration {
             {
                 $JobNames = (Get-Job | Where-Object {$_.name -like 'ResourceJob_*'}).Name
                 
-                # v7.7 FIX: Check if jobs exist before calling Wait-ARIJob
-                # Start-ARIProcessJob now handles batching internally and cleans up jobs
-                # So this check may find zero jobs remaining
-                if ($JobNames -and $JobNames.Count -gt 0) {
-                    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Found $($JobNames.Count) remaining jobs to wait for")
+                # v7.24 FIX: Proper null handling for Get-Job result
+                # Get-Job returns null when no jobs found, must check null first before accessing .Count
+                # Wrap in @() to ensure array type before checking Count
+                if ($null -ne $JobNames -and @($JobNames).Count -gt 0) {
+                    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Found $(@($JobNames).Count) remaining jobs to wait for")
                     Wait-ARIJob -JobNames $JobNames -JobType 'Resource' -LoopTime 5
                     
                     # Clean up any remaining jobs after Wait-ARIJob
