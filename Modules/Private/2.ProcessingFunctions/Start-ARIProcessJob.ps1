@@ -12,9 +12,16 @@ https://github.com/microsoft/ARI/Modules/Private/2.ProcessingFunctions/Start-ARI
 This PowerShell Module is part of Azure Resource Inventory (ARI).
 
 .NOTES
-Version: 3.6.5
+Version: 3.6.9 - v7.36
 First Release Date: 15th Oct, 2024
 Authors: Claudio Merola
+
+.CHANGELOG
+v7.36 (2024-10-09): CRITICAL FIX - Combine variable assignment and module code in SINGLE script block (v7.35 fix failed - nested scopes)
+v7.35 (2024-10-09): FAILED - Two AddScript() calls create nested scopes, module can't see $Resources
+v7.34 (2024-10-09): Rebuild with --no-cache to deploy v7.33 changes
+v7.33 (2024-10-09): Hybrid solution - reduce batch size (8→4) AND use per-job filtering
+v7.30 (2024-10-08): Replace JSON with XML serialization (Import-Clixml)
 #>
 
 function Start-ARIProcessJob {
@@ -27,8 +34,8 @@ function Start-ARIProcessJob {
         {$_ -le 12500}
             {
                 Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Regular Size Environment. Jobs will be run in parallel.')
-                $EnvSizeLooper = 8  # v7.9: Back to 8 - Get-Job hangs with 16 jobs, 8 is the sweet spot
-                Write-Host "⚙️  Parallel job limit set to $EnvSizeLooper (v7.9: optimized - 16 caused Get-Job hangs)" -ForegroundColor Cyan
+                $EnvSizeLooper = 4  # v7.33: Reduced from 8 to 4 to reduce memory pressure during Import-Clixml
+                Write-Host "⚙️  Parallel job limit set to $EnvSizeLooper (v7.33-v7.35: reduced batches + per-job filtering)" -ForegroundColor Cyan
             }
         {$_ -gt 12500 -and $_ -le 50000}
             {
@@ -65,34 +72,15 @@ function Start-ARIProcessJob {
     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Resources received for processing: '+ $ResourceCount)
     Write-Host "🔍 Preparing to process $ResourceCount resources across $TotalFolders modules" -ForegroundColor Cyan
 
-    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Converting Resource data to JSON for Jobs')
-    $NewResources = ($Resources | ConvertTo-Json -Depth 40 -Compress -AsArray)
-
-    # v7.10: Verify JSON conversion didn't break
-    $JsonLength = $NewResources.Length
-    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'JSON string length: '+ $JsonLength + ' characters')
-    if ($JsonLength -lt 100) {
-        Write-Host "⚠️  WARNING: JSON string suspiciously short ($JsonLength chars) - resources may be empty!" -ForegroundColor Yellow
-    }
-
+    # v7.33: ARCHITECTURE CHANGE - Don't serialize all resources at once
+    # Jobs crash trying to import 87 MB file even at depth 5
+    # Instead: Keep resources in memory and filter per-job (smaller temp files)
+    Write-Host "� Using per-job filtering to reduce memory footprint" -ForegroundColor Cyan
+    
+    # Store all resources for filtering later
+    $AllResources = $Resources
     Remove-Variable -Name Resources
     Clear-ARIMemory
-
-    # v7.17: CRITICAL ARCHITECTURE CHANGE - Write JSON to temp file instead of passing via ArgumentList
-    # PowerShell Start-Job has size limits on -ArgumentList (our 18.2 MB JSON exceeds it)
-    # Jobs were completing in 3-4 seconds (instant failure) before scriptblock could execute
-    $TempJsonFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "ari_resources_$(Get-Date -Format 'yyyyMMdd_HHmmss').json")
-    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Writing resources to temp file: $TempJsonFile")
-    
-    try {
-        $NewResources | Out-File -FilePath $TempJsonFile -Encoding UTF8 -Force
-        $FileSize = (Get-Item $TempJsonFile).Length / 1MB
-        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Temp file created: $([math]::Round($FileSize, 2)) MB")
-        Write-Host "📁 Resources written to temp file: $([math]::Round($FileSize, 2)) MB" -ForegroundColor Green
-    } catch {
-        Write-Error "Failed to write resources to temp file: $_"
-        return
-    }
 
     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Starting to Create Jobs to Process the Resources.')
 
@@ -104,6 +92,35 @@ function Start-ARIProcessJob {
             $ModuleFiles = Get-ChildItem -Path $ModulePath
 
             Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Creating Job: '+$ModuleName)
+
+            # v7.33: CRITICAL - Filter resources by module type BEFORE creating temp file
+            # This creates small per-job files (5-10 MB) instead of one giant 87 MB file
+            # Read the first module file to get resource type filters
+            $FirstModuleContent = Get-Content -Path $ModuleFiles[0].FullName -Raw
+            
+            # Extract resource type from Where-Object clause (e.g., "microsoft.cognitiveservices/accounts")
+            if ($FirstModuleContent -match "TYPE -eq '([^']+)'") {
+                $ResourceType = $matches[1]
+                $FilteredResources = $AllResources | Where-Object { $_.TYPE -eq $ResourceType }
+            } else {
+                # Fallback: pass all resources if we can't determine filter
+                $FilteredResources = $AllResources
+            }
+            
+            $FilteredCount = $FilteredResources.count
+            Write-Host "📦 [$ModuleName] Filtered to $FilteredCount resources" -ForegroundColor Cyan
+            
+            # Create per-job temp file with ONLY filtered resources
+            $TempJobFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "ari_${ModuleName}_$(Get-Date -Format 'yyyyMMdd_HHmmss').xml")
+            
+            try {
+                $FilteredResources | Export-Clixml -Path $TempJobFile -Depth 5 -Force
+                $JobFileSize = (Get-Item $TempJobFile).Length / 1MB
+                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job temp file: $([math]::Round($JobFileSize, 2)) MB for $FilteredCount resources")
+            } catch {
+                Write-Error "Failed to create temp file for $ModuleName : $_"
+                return
+            }
 
             $c = (($JobLoop / $TotalFolders) * 100)
             $c = [math]::Round($c)
@@ -132,22 +149,20 @@ function Start-ARIProcessJob {
                     Write-Host "[JOB] Reading resources from temp file: $TempJsonFile" -ForegroundColor Yellow
                     
                     if (-not (Test-Path $TempJsonFile)) {
-                        throw "Temp JSON file not found: $TempJsonFile"
+                        throw "Temp file not found: $TempJsonFile"
                     }
                     
-                    $JsonContent = Get-Content -Path $TempJsonFile -Raw
-                    Write-Host "[JOB] JSON file read: $([math]::Round($JsonContent.Length / 1MB, 2)) MB" -ForegroundColor Yellow
-                    Write-Host "[JOB] Deserializing JSON..." -ForegroundColor Yellow
+                    # v7.30: PERFORMANCE FIX - Use Import-Clixml instead of ConvertFrom-Json
+                    # Import-Clixml is significantly faster and doesn't hang like ConvertFrom-Json
+                    Write-Host "[JOB] Importing resources from temp file... (this may take 5-10 seconds)" -ForegroundColor Yellow
                     
                     try {
-                        $Resources = $JsonContent | ConvertFrom-Json -ErrorAction Stop
+                        $Resources = Import-Clixml -Path $TempJsonFile -ErrorAction Stop
                         
                         if ($null -eq $Resources) {
-                            Write-Host "[JOB ERROR] ❌ JSON deserialization returned null!" -ForegroundColor Red
-                            throw "JSON deserialization failed - Resources is null"
+                            Write-Host "[JOB ERROR] ❌ Import-Clixml returned null!" -ForegroundColor Red
+                            throw "Import-Clixml failed - Resources is null"
                         }
-                        
-                        Write-Host "[JOB] ✅ Resources deserialized successfully" -ForegroundColor Green
                         
                         # Safely get count with null check
                         $ResourceCount = if ($Resources) { 
@@ -155,12 +170,11 @@ function Start-ARIProcessJob {
                             else { 1 } 
                         } else { 0 }
                         
-                        Write-Host "[JOB] Resource count: $ResourceCount" -ForegroundColor Green
+                        Write-Host "[JOB] ✅ Resources imported successfully: $ResourceCount items" -ForegroundColor Green
                     }
                     catch {
-                        Write-Host "[JOB ERROR] ❌ Exception during JSON deserialization: $($_.Exception.Message)" -ForegroundColor Red
-                        Write-Host "[JOB ERROR] Error details: $($_.Exception.GetType().FullName)" -ForegroundColor Red
-                        throw "JSON deserialization failed: $($_.Exception.Message)"
+                        Write-Host "[JOB ERROR] ❌ Exception during import: $($_.Exception.Message)" -ForegroundColor Red
+                        throw "Import failed: $($_.Exception.Message)"
                     }
                     
                     $Retirements = $($args[5])
@@ -179,7 +193,25 @@ function Start-ARIProcessJob {
                         New-Variable -Name ('ModRun' + $ModName)
                         New-Variable -Name ('ModJob' + $ModName)
 
-                        Set-Variable -Name ('ModRun' + $ModName) -Value ([PowerShell]::Create()).AddScript($ModuleData).AddArgument($PSScriptRoot).AddArgument($Subscriptions).AddArgument($InTag).AddArgument($Resources).AddArgument($Retirements).AddArgument($Task).AddArgument($null).AddArgument($null).AddArgument($null).AddArgument($Unsupported)
+                        # v7.36: FIXED - Wrap module code with variable assignments in SINGLE script block
+                        # Module files reference $Resources directly, needs to be in same scope
+                        # Previous fix (v7.35) failed: two separate AddScript() calls create nested scopes
+                        # Solution: Combine variable assignment + module code into ONE script string
+                        $CombinedScript = @"
+# Assign variables from arguments
+`$Resources = `$args[0]
+`$PSScriptRoot = `$args[1]
+`$Subscriptions = `$args[2]
+`$InTag = `$args[3]
+`$Retirements = `$args[4]
+`$Task = `$args[5]
+`$Unsupported = `$args[6]
+
+# Execute module code in same scope
+$ModuleData
+"@
+                        
+                        Set-Variable -Name ('ModRun' + $ModName) -Value ([PowerShell]::Create()).AddScript($CombinedScript).AddArgument($Resources).AddArgument($PSScriptRoot).AddArgument($Subscriptions).AddArgument($InTag).AddArgument($Retirements).AddArgument($Task).AddArgument($Unsupported)
 
                         Set-Variable -Name ('ModJob' + $ModName) -Value ((get-variable -name ('ModRun' + $ModName)).Value).BeginInvoke()
 
@@ -256,7 +288,7 @@ function Start-ARIProcessJob {
                     @{}
                 }
 
-            } -ArgumentList $ModuleFiles, $PSScriptRoot, $Subscriptions, $InTag, $TempJsonFile , $Retirements, 'Processing', $null, $null, $null, $Unsupported | Out-Null
+            } -ArgumentList $ModuleFiles, $PSScriptRoot, $Subscriptions, $InTag, $TempJobFile , $Retirements, 'Processing', $null, $null, $null, $Unsupported | Out-Null
 
         if($JobLoop -eq $EnvSizeLooper)
             {
@@ -291,13 +323,16 @@ function Start-ARIProcessJob {
             Build-ARICacheFiles -DefaultPath $DefaultPath -JobNames $FinalJobNames
         }
 
-        # v7.17: Clean up temp JSON file after all jobs complete
-        if (Test-Path $TempJsonFile) {
-            Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Removing temp JSON file: $TempJsonFile")
-            Remove-Item -Path $TempJsonFile -Force -ErrorAction SilentlyContinue
-            Write-Host "🗑️  Temp file cleaned up" -ForegroundColor Gray
+        # v7.33: Clean up all per-job temp XML files after all jobs complete
+        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Cleaning up per-job temp files")
+        $TempFiles = Get-ChildItem -Path ([System.IO.Path]::GetTempPath()) -Filter "ari_*_*.xml" -ErrorAction SilentlyContinue
+        if ($TempFiles) {
+            foreach ($TempFile in $TempFiles) {
+                Remove-Item -Path $TempFile.FullName -Force -ErrorAction SilentlyContinue
+            }
+            Write-Host "🗑️  Cleaned up $($TempFiles.Count) temp file(s)" -ForegroundColor Gray
         }
 
-        Remove-Variable -Name NewResources
+        # v7.30: NewResources variable no longer exists (using Export-Clixml instead)
         Clear-ARIMemory
 }

@@ -43,15 +43,19 @@ function Build-ARICacheFiles {
             $NewJobName = ($Job -replace 'ResourceJob_','')
             $TempJob = Receive-Job -Name $Job
             
-            # v7.15: Enhanced diagnostics for job return structure
-            Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job '$NewJobName' returned type: $($TempJob.GetType().Name)")
-            Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job '$NewJobName' has Keys property: $($null -ne $TempJob.Keys)")
-            if ($TempJob.Keys) {
-                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job '$NewJobName' key count: $($TempJob.Keys.Count)")
-                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job '$NewJobName' keys: $($TempJob.Keys -join ', ')")
+            # v7.28: NULL-SAFE diagnostics - Check if $TempJob is null BEFORE calling methods
+            if ($null -eq $TempJob) {
+                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job '$NewJobName' returned NULL")
+            } else {
+                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job '$NewJobName' returned type: $($TempJob.GetType().Name)")
+                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job '$NewJobName' has Keys property: $($null -ne $TempJob.Keys)")
+                if ($TempJob.Keys) {
+                    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job '$NewJobName' key count: $($TempJob.Keys.Count)")
+                    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job '$NewJobName' keys: $($TempJob.Keys -join ', ')")
+                }
+                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job '$NewJobName' has .values property: $($null -ne $TempJob.values)")
+                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job '$NewJobName' .values is empty: $([string]::IsNullOrEmpty($TempJob.values))")
             }
-            Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job '$NewJobName' has .values property: $($null -ne $TempJob.values)")
-            Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Job '$NewJobName' .values is empty: $([string]::IsNullOrEmpty($TempJob.values))")
             
             # v7.15: CRITICAL FIX - Check if hashtable has data (not .values which doesn't exist)
             if ($TempJob -and $TempJob -is [System.Collections.Hashtable] -and $TempJob.Count -gt 0)

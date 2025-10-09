@@ -1,0 +1,50 @@
+{
+  "location": "eastus",
+  "properties": {
+    "state": "Enabled",
+    "definition": {
+      "$schema": "https://schema.management.azure.com/schemas/2016-06-01/Microsoft.Logic.json",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$connections": { "defaultValue": {}, "type": "Object" }
+      },
+      "triggers": {
+        "Every_Day_At_13Z": {
+          "type": "Recurrence",
+          "recurrence": { "frequency": "Day", "interval": 1, "schedule": { "hours": [13], "minutes": [0] }, "timeZone": "UTC" }
+        }
+      },
+      "actions": {
+        "Compose_Placeholder": { "type": "Compose", "inputs": "Daily subscription report will be generated and emailed." },
+        "Send_email_v2": {
+          "type": "ApiConnection",
+          "runAfter": { "Compose_Placeholder": ["Succeeded"] },
+          "inputs": {
+            "host": { "connection": { "name": "@parameters('$connections')['office365']['connectionId']" } },
+            "method": "post",
+            "path": "/v2/Mail/Send",
+            "body": {
+              "subject": "daily sre report",
+              "body": "the daily report",
+              "importance": "Normal",
+              "to": [ "rkibbe@3cloudsolutions.com" ],
+              "bodyContentType": "Text"
+            }
+          }
+        }
+      },
+      "outputs": {}
+    },
+    "parameters": {
+      "$connections": {
+        "value": {
+          "office365": {
+            "connectionId": "/subscriptions/d5736eb1-f851-4ec3-a2c5-ac8d84d029e2/resourceGroups/rg-rkibbe-2470/providers/Microsoft.Web/connections/office365-report",
+            "connectionName": "office365-report",
+            "id": "/subscriptions/d5736eb1-f851-4ec3-a2c5-ac8d84d029e2/providers/Microsoft.Web/locations/eastus/managedApis/office365"
+          }
+        }
+      }
+    }
+  }
+}
