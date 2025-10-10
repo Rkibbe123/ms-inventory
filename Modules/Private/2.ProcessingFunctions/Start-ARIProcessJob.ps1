@@ -109,6 +109,7 @@ function Start-ARIProcessJob {
                 $FilteredResources = $AllResources
             }
             
+            if ($null -eq $FilteredResources) { $FilteredResources = @() }
             $FilteredCount = $FilteredResources.count
             Write-Host "📦 [$ModuleName] Filtered to $FilteredCount resources" -ForegroundColor Cyan
             
@@ -153,31 +154,96 @@ function Start-ARIProcessJob {
                     if (-not (Test-Path $TempJsonFile)) {
                         throw "Temp file not found: $TempJsonFile"
                     }
+
+                    # Helper: wait until the file is stable (exists, non-zero, size unchanged across checks)
+                    function Wait-ARIStableFile {
+                        param(
+                            [Parameter(Mandatory)] [string] $Path,
+                            [int] $MinBytes = 10,
+                            [int] $Retries = 15,
+                            [int] $DelayMs = 200
+                        )
+                        for ($i = 1; $i -le $Retries; $i++) {
+                            if (-not (Test-Path -LiteralPath $Path)) {
+                                Start-Sleep -Milliseconds $DelayMs
+                                continue
+                            }
+                            try {
+                                $fi1 = Get-Item -LiteralPath $Path -ErrorAction Stop
+                                $size1 = $fi1.Length
+                                $time1 = $fi1.LastWriteTimeUtc
+                                Start-Sleep -Milliseconds $DelayMs
+                                $fi2 = Get-Item -LiteralPath $Path -ErrorAction Stop
+                                $size2 = $fi2.Length
+                                $time2 = $fi2.LastWriteTimeUtc
+                                if ($size1 -ge $MinBytes -and $size1 -eq $size2 -and $time1 -eq $time2) {
+                                    return $true
+                                }
+                            } catch {
+                                # ignore transient errors and retry
+                            }
+                        }
+                        return $false
+                    }
                     
                     # v7.30: PERFORMANCE FIX - Use Import-Clixml instead of ConvertFrom-Json
                     # Import-Clixml is significantly faster and doesn't hang like ConvertFrom-Json
                     Write-Host "[JOB] Importing resources from temp file... (this may take 5-10 seconds)" -ForegroundColor Yellow
-                    
+
+                    # Ensure file is stable before importing
+                    $stable = Wait-ARIStableFile -Path $TempJsonFile -MinBytes 10 -Retries 20 -DelayMs 150
+                    $fi = $null
+                    if ($stable) { $fi = Get-Item -LiteralPath $TempJsonFile -ErrorAction SilentlyContinue }
+                    $sizeMb = if ($fi) { [Math]::Round(($fi.Length/1MB), 2) } else { 0 }
+                    Write-Host "[JOB] Temp file size: $sizeMb MB" -ForegroundColor Gray
+
+                    # Quick header check (CLIXML files typically start with '#< CLIXML')
                     try {
-                        $Resources = Import-Clixml -Path $TempJsonFile -ErrorAction Stop
-                        
-                        if ($null -eq $Resources) {
-                            Write-Host "[JOB ERROR] ❌ Import-Clixml returned null!" -ForegroundColor Red
-                            throw "Import-Clixml failed - Resources is null"
+                        $firstLine = Get-Content -LiteralPath $TempJsonFile -First 1 -ErrorAction Stop
+                        if ($firstLine -notmatch 'CLIXML') {
+                            Write-Host "[JOB WARN] Temp file does not start with CLIXML header (line1: '$firstLine')" -ForegroundColor DarkYellow
                         }
-                        
-                        # Safely get count with null check
-                        $ResourceCount = if ($Resources) { 
-                            if ($Resources -is [Array]) { $Resources.Count } 
-                            else { 1 } 
-                        } else { 0 }
-                        
-                        Write-Host "[JOB] ✅ Resources imported successfully: $ResourceCount items" -ForegroundColor Green
+                    } catch { }
+
+                    $Resources = $null
+                    $importError = $null
+                    $maxAttempts = 5
+                    for ($attempt = 1; $attempt -le $maxAttempts -and $null -eq $Resources; $attempt++) {
+                        try {
+                            Write-Host "[JOB] Import-Clixml attempt $attempt/$maxAttempts" -ForegroundColor Gray
+                            $Resources = Import-Clixml -Path $TempJsonFile -ErrorAction Stop
+                        } catch {
+                            $importError = $_
+                            Start-Sleep -Milliseconds ([int][Math]::Min(1500, 200 * [Math]::Pow(2, ($attempt - 1))))
+                        }
                     }
-                    catch {
-                        Write-Host "[JOB ERROR] ❌ Exception during import: $($_.Exception.Message)" -ForegroundColor Red
-                        throw "Import failed: $($_.Exception.Message)"
+
+                    # Fallback: copy the file and import from the copy to avoid any transient locks
+                    if ($null -eq $Resources) {
+                        try {
+                            $copyPath = "$TempJsonFile.copy"
+                            Copy-Item -LiteralPath $TempJsonFile -Destination $copyPath -Force -ErrorAction Stop
+                            Write-Host "[JOB] Retrying import from copied file: $copyPath" -ForegroundColor Gray
+                            $Resources = Import-Clixml -Path $copyPath -ErrorAction Stop
+                            Remove-Item -LiteralPath $copyPath -Force -ErrorAction SilentlyContinue
+                        } catch {
+                            if (Test-Path -LiteralPath $copyPath) { Remove-Item -LiteralPath $copyPath -Force -ErrorAction SilentlyContinue }
+                            if ($null -eq $importError) { $importError = $_ }
+                        }
                     }
+
+                    if ($null -eq $Resources) {
+                        Write-Host "[JOB ERROR] ❌ Import-Clixml returned null!" -ForegroundColor Red
+                        $msg = if ($importError) { $importError.Exception.Message } else { 'Unknown import failure' }
+                        throw "Import-Clixml failed - Resources is null (size=${sizeMb}MB): $msg"
+                    }
+
+                    # Safely get count with null check
+                    $ResourceCount = if ($Resources) { 
+                        if ($Resources -is [Array]) { $Resources.Count } 
+                        else { 1 } 
+                    } else { 0 }
+                    Write-Host "[JOB] ✅ Resources imported successfully: $ResourceCount items" -ForegroundColor Green
                     
                     $Retirements = $($args[5])
                     $Task = $($args[6])
@@ -394,7 +460,7 @@ $ModuleData
                 }
             }
             
-            $FinalJobNames = (Get-Job | Where-Object {$_.name -like 'ResourceJob_*'}).Name
+            # Note: Removed unused variable assignment of $FinalJobNames to satisfy linters
             Write-Host "📦 Building cache files for final batch ($($FinalJobResults.Count) captured)..." -ForegroundColor Cyan
             # v7.40: CRITICAL CHANGE - Pass captured job results to Build-ARICacheFiles
             Build-ARICacheFiles -DefaultPath $DefaultPath -JobResults $FinalJobResults
