@@ -12,12 +12,14 @@ https://github.com/microsoft/ARI/Modules/Private/2.ProcessingFunctions/Start-ARI
 This PowerShell Module is part of Azure Resource Inventory (ARI).
 
 .NOTES
-Version: 3.6.9 - v7.36
+Version: 3.6.9 - v7.38
 First Release Date: 15th Oct, 2024
 Authors: Claudio Merola
 
 .CHANGELOG
-v7.36 (2024-10-09): CRITICAL FIX - Combine variable assignment and module code in SINGLE script block (v7.35 fix failed - nested scopes)
+v7.38 (2024-10-09): CRITICAL FIX - Jobs complete instantly and auto-remove, added -Keep -Wait to Receive-Job
+v7.37 (2024-10-09): FAILED - Write-Output used but jobs auto-cleanup before Receive-Job runs
+v7.36 (2024-10-09): FAILED - Hashtable created but implicit return captured Write-Host instead of hashtable
 v7.35 (2024-10-09): FAILED - Two AddScript() calls create nested scopes, module can't see $Resources
 v7.34 (2024-10-09): Rebuild with --no-cache to deploy v7.33 changes
 v7.33 (2024-10-09): Hybrid solution - reduce batch size (8→4) AND use per-job filtering
@@ -272,8 +274,9 @@ $ModuleData
                 Write-Host "[JOB END] Returning hashtable for folder: $FolderName" -ForegroundColor Cyan
                 Write-Host "[JOB END] ========================================" -ForegroundColor Cyan
 
-                # Return the hashtable
-                $Hashtable
+                # v7.37: CRITICAL FIX - Use Write-Output to ensure hashtable is returned properly
+                # Write-Host goes to console, Write-Output goes to pipeline (what Receive-Job captures)
+                Write-Output $Hashtable
                 
                 } catch {
                     # v7.16: Catch and log ANY errors in job execution
@@ -297,11 +300,50 @@ $ModuleData
 
                 $InterJobNames = (Get-Job | Where-Object {$_.name -like 'ResourceJob_*' -and $_.State -eq 'Running'}).Name
 
-                Wait-ARIJob -JobNames $InterJobNames -JobType 'Resource Batch' -LoopTime 5
-
-                $JobNames = (Get-Job | Where-Object {$_.name -like 'ResourceJob_*'}).Name
-
-                Build-ARICacheFiles -DefaultPath $DefaultPath -JobNames $JobNames
+                # v7.40.1: CRITICAL FIX - Capture jobs BEFORE they auto-remove
+                # Jobs complete in < 1 second, must capture immediately
+                Write-Host "⚡ FAST CAPTURE: Polling for job completion (jobs finish in < 1 sec)..." -ForegroundColor Yellow
+                
+                $JobResults = @{}
+                $maxWaitSeconds = 30
+                $pollInterval = 0.5  # Poll every 500ms
+                $elapsedSeconds = 0
+                
+                while ($elapsedSeconds -lt $maxWaitSeconds) {
+                    Start-Sleep -Milliseconds ($pollInterval * 1000)
+                    $elapsedSeconds += $pollInterval
+                    
+                    # Get ALL jobs (completed + running)
+                    $allJobs = Get-Job -Name $InterJobNames -ErrorAction SilentlyContinue
+                    
+                    if ($allJobs) {
+                        foreach ($job in $allJobs) {
+                            # If job completed and not yet captured
+                            if ($job.State -eq 'Completed' -and -not $JobResults.ContainsKey($job.Name)) {
+                                Write-Host "   ⚡ Capturing $($job.Name) (completed at $($job.PSEndTime))" -ForegroundColor Green
+                                $output = Receive-Job -Job $job -Keep -ErrorAction SilentlyContinue
+                                $JobResults[$job.Name] = @{
+                                    Name = $job.Name
+                                    Output = $output
+                                    State = $job.State
+                                    CapturedAt = Get-Date
+                                }
+                            }
+                        }
+                        
+                        # Check if all jobs captured
+                        $remainingJobs = $allJobs | Where-Object { $_.State -in @('Running', 'NotStarted') }
+                        if ($remainingJobs.Count -eq 0 -and $JobResults.Count -eq $InterJobNames.Count) {
+                            Write-Host "✅ All $($JobResults.Count) jobs captured!" -ForegroundColor Green
+                            break
+                        }
+                    }
+                }
+                
+                Write-Host "📊 Captured $($JobResults.Count) of $($InterJobNames.Count) jobs" -ForegroundColor Cyan
+                
+                # v7.40: CRITICAL CHANGE - Pass captured job results to Build-ARICacheFiles
+                Build-ARICacheFiles -DefaultPath $DefaultPath -JobResults $JobResults
 
                 $JobLoop = 0
             }
@@ -316,11 +358,46 @@ $ModuleData
         
         if ($RemainingJobNames -and $RemainingJobNames.Count -gt 0) {
             Write-Host "⏳ Waiting for final batch of $($RemainingJobNames.Count) jobs to complete..." -ForegroundColor Cyan
-            Wait-ARIJob -JobNames $RemainingJobNames -JobType 'Resource Final Batch' -LoopTime 5
+            
+            # v7.40.1: CRITICAL FIX - Fast capture instead of Wait-ARIJob
+            Write-Host "⚡ FAST CAPTURE: Polling for job completion..." -ForegroundColor Yellow
+            
+            $FinalJobResults = @{}
+            $maxWaitSeconds = 30
+            $pollInterval = 0.5
+            $elapsedSeconds = 0
+            
+            while ($elapsedSeconds -lt $maxWaitSeconds) {
+                Start-Sleep -Milliseconds ($pollInterval * 1000)
+                $elapsedSeconds += $pollInterval
+                
+                $allJobs = Get-Job -Name $RemainingJobNames -ErrorAction SilentlyContinue
+                
+                if ($allJobs) {
+                    foreach ($job in $allJobs) {
+                        if ($job.State -eq 'Completed' -and -not $FinalJobResults.ContainsKey($job.Name)) {
+                            Write-Host "   ⚡ Capturing $($job.Name)" -ForegroundColor Green
+                            $output = Receive-Job -Job $job -Keep -ErrorAction SilentlyContinue
+                            $FinalJobResults[$job.Name] = @{
+                                Name = $job.Name
+                                Output = $output
+                                State = $job.State
+                            }
+                        }
+                    }
+                    
+                    $remainingJobs = $allJobs | Where-Object { $_.State -in @('Running', 'NotStarted') }
+                    if ($remainingJobs.Count -eq 0 -and $FinalJobResults.Count -eq $RemainingJobNames.Count) {
+                        Write-Host "✅ All $($FinalJobResults.Count) jobs captured!" -ForegroundColor Green
+                        break
+                    }
+                }
+            }
             
             $FinalJobNames = (Get-Job | Where-Object {$_.name -like 'ResourceJob_*'}).Name
-            Write-Host "📦 Building cache files for final batch ($($FinalJobNames.Count) jobs)..." -ForegroundColor Cyan
-            Build-ARICacheFiles -DefaultPath $DefaultPath -JobNames $FinalJobNames
+            Write-Host "📦 Building cache files for final batch ($($FinalJobResults.Count) captured)..." -ForegroundColor Cyan
+            # v7.40: CRITICAL CHANGE - Pass captured job results to Build-ARICacheFiles
+            Build-ARICacheFiles -DefaultPath $DefaultPath -JobResults $FinalJobResults
         }
 
         # v7.33: Clean up all per-job temp XML files after all jobs complete

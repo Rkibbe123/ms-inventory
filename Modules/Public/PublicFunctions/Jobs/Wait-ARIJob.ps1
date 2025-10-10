@@ -12,13 +12,23 @@ https://github.com/microsoft/ARI/Modules/Public/PublicFunctions/Jobs/Wait-ARIJob
     This powershell Module is part of Azure Resource Inventory (ARI)
 
 .NOTES
-Version: 3.6.0
+Version: 3.6.9 - v7.40
 First Release Date: 15th Oct, 2024
 Authors: Claudio Merola
+
+Changelog:
+- v7.40: CRITICAL FIX - Capture job output immediately before PowerShell auto-removes jobs
+         Returns hashtable of job results instead of just waiting
+         Solves issue where Receive-Job returns NULL even with -Keep parameter
+- v7.39: Fixed parameter conflict (removed -Wait from Receive-Job)
+- v7.37-v7.38: Attempted various fixes for fast-completing jobs
 
 #>
 function Wait-ARIJob {
     Param($JobNames, $JobType, $LoopTime)
+    
+    # v7.40: Initialize hashtable to store job results as they complete
+    $jobResults = @{}
 
     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Starting Jobs Collector.')
 
@@ -110,6 +120,33 @@ function Wait-ARIJob {
         $failedJobs = $jb | Where-Object { $_.State -in @('Failed', 'Stopped', 'Blocked') }
         $completedJobs = $jb | Where-Object { $_.State -eq 'Completed' }
         Write-Host "   Running: $($runningJobs.Count) | Failed: $($failedJobs.Count) | Completed: $($completedJobs.Count)" -ForegroundColor Gray
+        
+        # v7.40: CRITICAL - Capture output from newly completed jobs IMMEDIATELY
+        # PowerShell auto-removes jobs within seconds, must capture before removal
+        foreach ($completedJob in $completedJobs) {
+            if (-not $jobResults.ContainsKey($completedJob.Name)) {
+                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"⚡ CAPTURING OUTPUT: $($completedJob.Name) just completed")
+                try {
+                    # Receive job output immediately - can't use -Keep since job will be removed
+                    $jobOutput = Receive-Job -Job $completedJob -ErrorAction Stop
+                    $jobResults[$completedJob.Name] = $jobOutput
+                    
+                    # Log what we captured
+                    if ($null -eq $jobOutput) {
+                        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"⚠️  Job $($completedJob.Name) output is NULL")
+                    } else {
+                        $outputType = $jobOutput.GetType().Name
+                        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"✅ Captured $($completedJob.Name): Type=$outputType")
+                        if ($outputType -eq 'Hashtable' -and $jobOutput.Keys) {
+                            Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"   Keys: $($jobOutput.Keys.Count) - $($jobOutput.Keys -join ', ')")
+                        }
+                    }
+                } catch {
+                    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"❌ ERROR receiving job $($completedJob.Name): $_")
+                    $jobResults[$completedJob.Name] = $null
+                }
+            }
+        }
         
         # v7.4: Track progress - detect if jobs are completing or all stuck
         if ($completedJobs.Count -gt $lastCompletionCount) {
@@ -246,4 +283,8 @@ function Wait-ARIJob {
     Write-Progress -Id 1 -activity "Processing $JobType Jobs" -Status "100% Complete." -Completed
 
     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Jobs Complete.')
+    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Returning $($jobResults.Count) job results")
+    
+    # Return captured job results to prevent loss from PowerShell auto-removal
+    return $jobResults
 }

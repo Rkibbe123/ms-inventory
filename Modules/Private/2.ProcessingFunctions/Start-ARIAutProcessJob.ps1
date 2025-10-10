@@ -77,13 +77,24 @@ function Start-ARIAutProcessJob {
                 {
                     Write-Output ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Waiting Batch Jobs')
 
-                    Get-Job | Where-Object {$_.name -like 'ResourceJob_*'} | Wait-Job
+                    Get-Job | Where-Object {$_.name -like 'ResourceJob_*'} | Wait-Job | Out-Null
 
                     $JobNames = (Get-Job | Where-Object {$_.name -like 'ResourceJob_*'}).Name
 
                     Start-Sleep -Seconds 5
 
-                    Build-ARICacheFiles -DefaultPath $DefaultPath -JobNames $JobNames
+                    # v7.40: Capture job results into hashtable format (compatible with new Build-ARICacheFiles)
+                    $JobResults = @{}
+                    foreach ($JobName in $JobNames) {
+                        $output = Receive-Job -Name $JobName -Keep -ErrorAction SilentlyContinue
+                        $JobResults[$JobName] = @{
+                            Name = $JobName
+                            Output = $output
+                            State = 'Completed'
+                        }
+                    }
+
+                    Build-ARICacheFiles -DefaultPath $DefaultPath -JobResults $JobResults
 
                     $JobLoop = 0
                 }

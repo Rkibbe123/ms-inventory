@@ -62,10 +62,45 @@ function Start-ARIProcessOrchestration {
                 # Wrap in @() to ensure array type before checking Count
                 if ($null -ne $JobNames -and @($JobNames).Count -gt 0) {
                     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Found $(@($JobNames).Count) remaining jobs to wait for")
-                    Wait-ARIJob -JobNames $JobNames -JobType 'Resource' -LoopTime 5
+                    
+                    # v7.40.1: CRITICAL FIX - Fast capture instead of Wait-ARIJob
+                    Write-Host "⚡ FAST CAPTURE: Polling for job completion..." -ForegroundColor Yellow
+                    
+                    $JobResults = @{}
+                    $maxWaitSeconds = 30
+                    $pollInterval = 0.5
+                    $elapsedSeconds = 0
+                    
+                    while ($elapsedSeconds -lt $maxWaitSeconds) {
+                        Start-Sleep -Milliseconds ($pollInterval * 1000)
+                        $elapsedSeconds += $pollInterval
+                        
+                        $allJobs = Get-Job -Name $JobNames -ErrorAction SilentlyContinue
+                        
+                        if ($allJobs) {
+                            foreach ($job in $allJobs) {
+                                if ($job.State -eq 'Completed' -and -not $JobResults.ContainsKey($job.Name)) {
+                                    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Capturing $($job.Name)")
+                                    $output = Receive-Job -Job $job -Keep -ErrorAction SilentlyContinue
+                                    $JobResults[$job.Name] = @{
+                                        Name = $job.Name
+                                        Output = $output
+                                        State = $job.State
+                                    }
+                                }
+                            }
+                            
+                            $remainingJobs = $allJobs | Where-Object { $_.State -in @('Running', 'NotStarted') }
+                            if ($remainingJobs.Count -eq 0 -and $JobResults.Count -eq $JobNames.Count) {
+                                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"All $($JobResults.Count) jobs captured")
+                                break
+                            }
+                        }
+                    }
                     
                     # Clean up any remaining jobs after Wait-ARIJob
-                    Build-ARICacheFiles -DefaultPath $DefaultPath -JobNames $JobNames
+                    # v7.40: CRITICAL CHANGE - Pass captured job results to Build-ARICacheFiles
+                    Build-ARICacheFiles -DefaultPath $DefaultPath -JobResults $JobResults
                 }
                 else {
                     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'No remaining jobs found - Start-ARIProcessJob handled all batches internally')

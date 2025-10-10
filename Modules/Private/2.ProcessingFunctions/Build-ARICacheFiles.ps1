@@ -12,24 +12,37 @@ https://github.com/microsoft/ARI/Modules/Private/2.ProcessingFunctions/Build-ARI
 This PowerShell Module is part of Azure Resource Inventory (ARI).
 
 .NOTES
-Version: 3.6.0
+Version: 3.6.9 - v7.40
 First Release Date: 15th Oct, 2024
 Authors: Claudio Merola
+
+Changelog:
+- v7.40: CRITICAL ARCHITECTURE CHANGE - Accept job results hashtable from Wait-ARIJob
+         Use pre-captured job output instead of calling Receive-Job
+         Eliminates dependency on job queue persistence after auto-removal
+- v7.39: CRITICAL FIX - Remove -Wait parameter from Receive-Job (PowerShell prohibits -Wait with -Keep)
+         Wait-ARIJob function already handles waiting, -Keep preserves job results after auto-removal
+- v7.38: FAILED - PowerShell parameter conflict: "Wait and Keep parameters cannot be used together"
+         Attempted to use both -Wait and -Keep on Receive-Job, causing execution termination
+- v7.37: Fix output stream issue - Explicit Write-Output for hashtable return
+- v7.36: Proved scope fix works - Module execution successful but hashtables NULL
+- v7.35: Fix scope isolation - Unified script block to prevent nested scope issues
 #>
 
 function Build-ARICacheFiles {
-    Param($DefaultPath, $JobNames)
+    Param($DefaultPath, $JobResults)
 
     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Checking Cache Folder.')
 
-    # v7.27: CRITICAL FIX - Check $null FIRST before accessing .Count property
-    # Accessing .Count on $null throws "cannot call method on null-valued expression"
-    if ($null -eq $JobNames -or @($JobNames).Count -eq 0) {
-        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'⚠️  ERROR: JobNames is null or empty! No jobs to process.')
-        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'This usually means jobs completed and were removed before we could receive their results.')
+    # v7.40: CRITICAL FIX - Check hashtable FIRST before accessing properties
+    # Accept pre-captured job results from Wait-ARIJob to prevent loss from auto-removal
+    if ($null -eq $JobResults -or $JobResults -isnot [hashtable] -or $JobResults.Count -eq 0) {
+        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'⚠️  ERROR: JobResults is null, not a hashtable, or empty! No jobs to process.')
+        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'This usually means Wait-ARIJob failed to capture results.')
         return
     }
 
+    $JobNames = $JobResults.Keys
     $Lops = @($JobNames).count
     $Counter = 0
 
@@ -41,7 +54,10 @@ function Build-ARICacheFiles {
             $Counter++
 
             $NewJobName = ($Job -replace 'ResourceJob_','')
-            $TempJob = Receive-Job -Name $Job
+            # v7.40: CRITICAL CHANGE - Use pre-captured job output from Wait-ARIJob hashtable
+            # No more Receive-Job calls - results already captured before auto-removal
+            $JobData = $JobResults[$Job]
+            $TempJob = if ($JobData -is [hashtable]) { $JobData.Output } else { $null }
             
             # v7.28: NULL-SAFE diagnostics - Check if $TempJob is null BEFORE calling methods
             if ($null -eq $TempJob) {
