@@ -17,8 +17,14 @@ app = Flask(__name__)
 jobs = {}
 
 # Job persistence directory - use same volume as ARI output for persistence
-JOBS_DIR = "/data/AzureResourceInventory/.jobs"
-os.makedirs(JOBS_DIR, exist_ok=True)
+def get_jobs_dir():
+    """Get the jobs directory, creating it if necessary"""
+    output_dir = os.environ.get("ARI_OUTPUT_DIR", os.path.expanduser("~/AzureResourceInventory"))
+    jobs_dir = os.path.join(output_dir, ".jobs")
+    os.makedirs(jobs_dir, exist_ok=True)
+    return jobs_dir
+
+JOBS_DIR = get_jobs_dir()
 
 def save_job(job_id, job_data):
     """Save job data to disk for persistence"""
