@@ -45,11 +45,6 @@ try {
     Write-Host "Connecting to Azure Storage..." -ForegroundColor Green
     
     # Import the Az.Storage module if not already loaded
-    if (-not (Get-Module -Name Az.Storage -ListAvailable)) {
-        Write-Host "Installing Az.Storage module..." -ForegroundColor Yellow
-        Install-Module -Name Az.Storage -Force -Scope CurrentUser -AllowClobber
-    }
-    
     Import-Module Az.Storage -ErrorAction Stop
     
     # Create storage context using account name and key
@@ -88,8 +83,14 @@ try {
         try {
             $itemName = $item.Name
             
-            if ($item.GetType().Name -eq 'AzureStorageFileDirectory' -or $item.IsDirectory) {
+            # Check if it's a directory by checking for IsDirectory property or CloudFileDirectory type
+            if ($item.PSObject.Properties.Name -contains 'IsDirectory' -and $item.IsDirectory) {
                 # It's a directory - delete recursively
+                Write-Host "Deleting directory: $itemName" -ForegroundColor Gray
+                Remove-AzStorageDirectory -ShareName $FileShareName -Path $itemName -Context $context -Force -ErrorAction Stop
+                $deletedCount++
+            } elseif ($item -is [Microsoft.Azure.Storage.File.CloudFileDirectory]) {
+                # Type check for CloudFileDirectory
                 Write-Host "Deleting directory: $itemName" -ForegroundColor Gray
                 Remove-AzStorageDirectory -ShareName $FileShareName -Path $itemName -Context $context -Force -ErrorAction Stop
                 $deletedCount++
