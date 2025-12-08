@@ -669,9 +669,10 @@ def cli_device_login():
     """Azure CLI device login for Azure Resource Inventory"""
     if request.method == "GET":
         # Get parameters from URL if provided, but never use environment variables
-        tenant_param = request.args.get("tenant", "").strip()
-        subscription_param = request.args.get("subscription", "").strip()
-        error_message = request.args.get("error", "").strip()
+        from markupsafe import escape
+        tenant_param = escape(request.args.get("tenant", "").strip())
+        subscription_param = escape(request.args.get("subscription", "").strip())
+        error_message = escape(request.args.get("error", "").strip())
         
         # Create HTML template with enhanced validation
         html_template = '''<!doctype html>
