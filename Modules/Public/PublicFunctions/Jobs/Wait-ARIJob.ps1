@@ -129,7 +129,15 @@ function Wait-ARIJob {
                 try {
                     # Receive job output immediately - can't use -Keep since job will be removed
                     $jobOutput = Receive-Job -Job $completedJob -ErrorAction Stop
-                    $jobResults[$completedJob.Name] = $jobOutput
+
+                    # v7.40: Standardize result shape to match Build-ARICacheFiles expectations
+                    $resultObject = @{
+                        Name = $completedJob.Name
+                        Output = $jobOutput
+                        State = $completedJob.State
+                        CapturedAt = Get-Date
+                    }
+                    $jobResults[$completedJob.Name] = $resultObject
                     
                     # Log what we captured
                     if ($null -eq $jobOutput) {
@@ -143,7 +151,13 @@ function Wait-ARIJob {
                     }
                 } catch {
                     Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"❌ ERROR receiving job $($completedJob.Name): $_")
-                    $jobResults[$completedJob.Name] = $null
+                    $jobResults[$completedJob.Name] = @{
+                        Name = $completedJob.Name
+                        Output = $null
+                        State = $completedJob.State
+                        CapturedAt = Get-Date
+                        Error = $_.Exception.Message
+                    }
                 }
             }
         }
