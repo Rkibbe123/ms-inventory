@@ -16,6 +16,7 @@ RUN pip3 install --no-cache-dir -r /tmp/requirements-web.txt
 # Prepare app directory
 WORKDIR /app
 COPY app /app/app
+COPY powershell /app/powershell
 COPY test-auth.ps1 /app/test-auth.ps1
 
 # ===== TESTING MODE: Copy local modified modules instead of using PowerShell Gallery =====

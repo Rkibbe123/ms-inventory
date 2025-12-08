@@ -29,6 +29,7 @@ Tags: PowerShell, Azure, Inventory, Excel Report, Customer Engineer
   - [Prerequisites](#prerequisites)
   - [Installation](#installation)
   - [Quick Start](#quick-start)
+- [Container Deployment](#-container-deployment)
 - [Usage Guide](#-usage-guide)
   - [Basic Commands](#basic-commands)
   - [Common Scenarios](#common-scenarios)
@@ -103,6 +104,16 @@ Invoke-ARI
 <p align="center">
   <img src="images/RunningARI.gif" width="700">
 </p>
+
+## 🐳 Container Deployment
+
+For deploying ARI as a containerized web application with Azure File Share integration, see the [Container Deployment Guide](CONTAINER-DEPLOYMENT.md).
+
+**Key Features:**
+- 🧹 **Automatic File Share Cleanup** - Clears Azure File Share before each run
+- 📊 **Diagram Generation & Validation** - Enabled by default with post-run validation
+- 🔄 **Persistent Storage** - Azure File Share integration for report persistence
+- 🌐 **Web Interface** - User-friendly interface with device login authentication
 
 ## 📖 Usage Guide
 
