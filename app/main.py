@@ -17,8 +17,14 @@ app = Flask(__name__)
 jobs = {}
 
 # Job persistence directory - use same volume as ARI output for persistence
-JOBS_DIR = "/data/AzureResourceInventory/.jobs"
-os.makedirs(JOBS_DIR, exist_ok=True)
+def get_jobs_dir():
+    """Get the jobs directory, creating it if necessary"""
+    output_dir = os.environ.get("ARI_OUTPUT_DIR", os.path.expanduser("~/AzureResourceInventory"))
+    jobs_dir = os.path.join(output_dir, ".jobs")
+    os.makedirs(jobs_dir, exist_ok=True)
+    return jobs_dir
+
+JOBS_DIR = get_jobs_dir()
 
 def save_job(job_id, job_data):
     """Save job data to disk for persistence"""
@@ -662,11 +668,13 @@ def enhance_device_code_output(line):
 def cli_device_login():
     """Azure CLI device login for Azure Resource Inventory"""
     if request.method == "GET":
-        # Get parameters from URL if provided
-        tenant_param = request.args.get("tenant", "") or ""
-        subscription_param = request.args.get("subscription", "") or ""
+        # Get parameters from URL if provided, but never use environment variables
+        from markupsafe import escape
+        tenant_param = escape(request.args.get("tenant", "").strip())
+        subscription_param = escape(request.args.get("subscription", "").strip())
+        error_message = escape(request.args.get("error", "").strip())
         
-        # Create HTML template
+        # Create HTML template with enhanced validation
         html_template = '''<!doctype html>
 <html>
   <head>
@@ -708,7 +716,7 @@ def cli_device_login():
         opacity: 0.9; 
       }
       .content { padding: 25px; }
-      .warning { 
+      .info-box { 
         background: #f0f9ff; 
         padding: 15px; 
         border-radius: 8px; 
@@ -716,10 +724,39 @@ def cli_device_login():
         border-left: 4px solid #0078d4; 
         font-size: 0.9rem;
       }
-      .warning strong { 
-        color: #dc2626; 
+      .info-box strong { 
+        color: #0078d4; 
         font-weight: bold;
         font-size: 1.1em;
+      }
+      .error-box {
+        background: #fee;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        border-left: 4px solid #dc2626;
+        font-size: 0.9rem;
+        color: #991b1b;
+      }
+      .error-box strong {
+        font-weight: bold;
+        font-size: 1.1em;
+      }
+      .help-section {
+        background: #fef3c7;
+        padding: 12px;
+        border-radius: 6px;
+        margin-bottom: 20px;
+        border-left: 3px solid #f59e0b;
+        font-size: 0.85rem;
+      }
+      .help-section a {
+        color: #d97706;
+        font-weight: 600;
+        text-decoration: none;
+      }
+      .help-section a:hover {
+        text-decoration: underline;
       }
       .form-group { margin-bottom: 18px; }
       label { 
@@ -727,6 +764,13 @@ def cli_device_login():
         margin-bottom: 8px; 
         font-weight: 600; 
         color: #1e293b;
+      }
+      .field-help {
+        display: block;
+        font-size: 0.8rem;
+        color: #64748b;
+        margin-bottom: 8px;
+        font-weight: 400;
       }
       input { 
         width: 100%; 
@@ -739,6 +783,7 @@ def cli_device_login():
         background: #f8f9fa;
         transition: all 0.3s ease;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        font-family: 'Courier New', monospace;
       }
       input:focus { 
         outline: none;
@@ -747,10 +792,35 @@ def cli_device_login():
         box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.15), 0 4px 8px rgba(0, 0, 0, 0.1);
         transform: translateY(-1px);
       }
+      input.invalid {
+        border-color: #dc2626;
+        background: #fee;
+      }
+      input.valid {
+        border-color: #10b981;
+        background: #f0fdf4;
+      }
       input::placeholder {
         color: #9ca3af;
         font-style: italic;
         font-weight: 400;
+      }
+      .validation-message {
+        display: none;
+        font-size: 0.8rem;
+        margin-top: 5px;
+        padding: 5px 10px;
+        border-radius: 4px;
+      }
+      .validation-message.error {
+        display: block;
+        background: #fee;
+        color: #991b1b;
+      }
+      .validation-message.success {
+        display: block;
+        background: #f0fdf4;
+        color: #065f46;
       }
       .run-button { 
         display: inline-block; 
@@ -772,6 +842,12 @@ def cli_device_login():
         transform: translateY(-2px); 
         box-shadow: 0 15px 25px -5px rgba(220, 38, 38, 0.4), 0 10px 10px -5px rgba(220, 38, 38, 0.1);
       }
+      .run-button:disabled {
+        background: #9ca3af;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+      }
       .back-link { 
         margin-top: 20px; 
         text-align: center;
@@ -789,29 +865,40 @@ def cli_device_login():
   <body>
     <div class="container">
       <div class="header">
-        <h1>Device Authentication</h1>
-        <p>Secure Azure CLI Login for Resource Inventory</p>
+        <h1>Azure Authentication Setup</h1>
+        <p>Enter your Azure credentials to continue</p>
       </div>
       
       <div class="content">
-        <div class="warning">
+        <div class="info-box">
           <strong>🔒 Secure Authentication:</strong> Uses Azure CLI device login for secure authentication.
           <br><strong>Your credentials are never stored</strong> - authentication is handled directly by Microsoft Azure.
         </div>
         
-        <form method="POST">
+        ERROR_MESSAGE_PLACEHOLDER
+        
+        <div class="help-section">
+          ℹ️ <strong>Need help finding your Tenant ID or Subscription ID?</strong><br>
+          Visit the <a href="https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/Properties" target="_blank">Azure Portal</a> to find your Tenant ID, or use <a href="https://portal.azure.com/#view/Microsoft_Azure_Billing/SubscriptionsBlade" target="_blank">Subscriptions</a> to find your Subscription ID.
+        </div>
+        
+        <form method="POST" id="auth-form">
           <div class="form-group">
-            <label for="tenant">Tenant ID (required):</label>
-            <input type="text" name="tenant" id="tenant" value="TENANT_VALUE" placeholder="Enter your Azure Tenant ID" required>
+            <label for="tenant">Tenant ID<span style="color: #dc2626;">*</span> (required):</label>
+            <span class="field-help">Your Azure Active Directory tenant ID (GUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)</span>
+            <input type="text" name="tenant" id="tenant" value="TENANT_VALUE" placeholder="00000000-0000-0000-0000-000000000000" required pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}">
+            <div id="tenant-validation" class="validation-message"></div>
           </div>
           
           <div class="form-group">
             <label for="subscription">Subscription ID (optional):</label>
-            <input type="text" name="subscription" id="subscription" value="SUBSCRIPTION_VALUE" placeholder="Leave empty for default subscription">
+            <span class="field-help">Leave empty to use your default subscription, or enter a specific Subscription ID (GUID format)</span>
+            <input type="text" name="subscription" id="subscription" value="SUBSCRIPTION_VALUE" placeholder="00000000-0000-0000-0000-000000000000 (optional)">
+            <div id="subscription-validation" class="validation-message"></div>
           </div>
           
           <div style="text-align: center;">
-            <button type="submit" class="run-button">Start Authentication</button>
+            <button type="submit" class="run-button" id="submit-btn">Start Authentication</button>
           </div>
           
           <div class="back-link">
@@ -820,18 +907,136 @@ def cli_device_login():
         </form>
       </div>
     </div>
+    
+    <script>
+      // GUID/UUID validation pattern
+      const guidPattern = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+      
+      const tenantInput = document.getElementById('tenant');
+      const subscriptionInput = document.getElementById('subscription');
+      const tenantValidation = document.getElementById('tenant-validation');
+      const subscriptionValidation = document.getElementById('subscription-validation');
+      const submitBtn = document.getElementById('submit-btn');
+      const form = document.getElementById('auth-form');
+      
+      function validateTenant() {
+        const value = tenantInput.value.trim();
+        
+        if (!value) {
+          tenantInput.className = 'invalid';
+          tenantValidation.className = 'validation-message error';
+          tenantValidation.textContent = '❌ Tenant ID is required';
+          return false;
+        }
+        
+        if (!guidPattern.test(value)) {
+          tenantInput.className = 'invalid';
+          tenantValidation.className = 'validation-message error';
+          tenantValidation.textContent = '❌ Invalid format. Tenant ID must be a valid GUID (e.g., 12345678-1234-1234-1234-123456789012)';
+          return false;
+        }
+        
+        tenantInput.className = 'valid';
+        tenantValidation.className = 'validation-message success';
+        tenantValidation.textContent = '✅ Valid Tenant ID format';
+        return true;
+      }
+      
+      function validateSubscription() {
+        const value = subscriptionInput.value.trim();
+        
+        // Empty is valid (optional field)
+        if (!value) {
+          subscriptionInput.className = '';
+          subscriptionValidation.className = 'validation-message';
+          subscriptionValidation.style.display = 'none';
+          return true;
+        }
+        
+        if (!guidPattern.test(value)) {
+          subscriptionInput.className = 'invalid';
+          subscriptionValidation.className = 'validation-message error';
+          subscriptionValidation.textContent = '❌ Invalid format. Subscription ID must be a valid GUID (e.g., 12345678-1234-1234-1234-123456789012)';
+          return false;
+        }
+        
+        subscriptionInput.className = 'valid';
+        subscriptionValidation.className = 'validation-message success';
+        subscriptionValidation.textContent = '✅ Valid Subscription ID format';
+        return true;
+      }
+      
+      function updateSubmitButton() {
+        const tenantValid = validateTenant();
+        const subscriptionValid = validateSubscription();
+        submitBtn.disabled = !(tenantValid && subscriptionValid);
+      }
+      
+      // Validate on input
+      tenantInput.addEventListener('input', updateSubmitButton);
+      subscriptionInput.addEventListener('input', updateSubmitButton);
+      
+      // Validate on blur
+      tenantInput.addEventListener('blur', updateSubmitButton);
+      subscriptionInput.addEventListener('blur', updateSubmitButton);
+      
+      // Initial validation
+      updateSubmitButton();
+      
+      // Prevent form submission if validation fails
+      form.addEventListener('submit', function(e) {
+        if (!validateTenant() || !validateSubscription()) {
+          e.preventDefault();
+          alert('Please fix the validation errors before submitting.');
+          return false;
+        }
+      });
+    </script>
   </body>
 </html>'''
         
-        # Replace placeholders safely
+        # Add error message if present
+        if error_message:
+            error_html = f'''<div class="error-box">
+          <strong>⚠️ Error:</strong> {error_message}
+        </div>'''
+            html_template = html_template.replace("ERROR_MESSAGE_PLACEHOLDER", error_html)
+        else:
+            html_template = html_template.replace("ERROR_MESSAGE_PLACEHOLDER", "")
+        
+        # Replace placeholders safely - never use environment variables
         html_template = html_template.replace("TENANT_VALUE", tenant_param)
         html_template = html_template.replace("SUBSCRIPTION_VALUE", subscription_param)
         
         return html_template
     
-    # POST request - start Azure CLI device login process
-    tenant = request.form.get("tenant", "").strip() or None
-    subscription = request.form.get("subscription", "").strip() or None
+    # POST request - validate inputs before starting Azure CLI device login process
+    tenant = request.form.get("tenant", "").strip()
+    subscription = request.form.get("subscription", "").strip()
+    
+    # Server-side validation - GUID format check
+    guid_pattern = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+    
+    # Tenant ID is required
+    if not tenant:
+        return redirect(url_for('cli_device_login', error='Tenant ID is required. Please enter a valid Azure Tenant ID.'))
+    
+    # Validate Tenant ID format
+    if not guid_pattern.match(tenant):
+        return redirect(url_for('cli_device_login', 
+                                tenant=tenant, 
+                                subscription=subscription,
+                                error='Invalid Tenant ID format. Tenant ID must be a valid GUID (e.g., 12345678-1234-1234-1234-123456789012).'))
+    
+    # Validate Subscription ID format if provided
+    if subscription and not guid_pattern.match(subscription):
+        return redirect(url_for('cli_device_login', 
+                                tenant=tenant, 
+                                subscription=subscription,
+                                error='Invalid Subscription ID format. Subscription ID must be a valid GUID (e.g., 12345678-1234-1234-1234-123456789012).'))
+    
+    # Convert empty subscription to None
+    subscription = subscription if subscription else None
     
     job_id = str(uuid.uuid4())
     output_dir = get_output_dir()
@@ -1042,13 +1247,23 @@ def cli_device_login():
                 statusElement.className = 'status completed';
                 statusElement.innerHTML = '✅ Azure Resource Inventory completed successfully!';
               } else if (output.includes('Failed to resolve tenant') || 
-                        output.includes('ERROR: Failed to resolve') ||
+                        output.includes('ERROR: Failed to authenticate') ||
+                        output.includes('ERROR: Failed to set subscription') ||
+                        output.includes('ERROR: Tenant ID is required') ||
                         output.includes('Process failed with exit code')) {
                 statusElement.className = 'status';
                 statusElement.style.background = '#fef2f2';
                 statusElement.style.borderLeftColor = '#ef4444';
                 statusElement.style.color = '#991b1b';
-                statusElement.innerHTML = '❌ Authentication failed - Please check your Azure permissions and try again.';
+                
+                // Provide specific error messages
+                if (output.includes('Failed to authenticate with the provided Tenant ID')) {
+                  statusElement.innerHTML = '❌ Authentication failed - Invalid Tenant ID. Please verify your Tenant ID and <a href="/cli-device-login" style="color: #991b1b; font-weight: bold; text-decoration: underline;">try again</a>.';
+                } else if (output.includes('Failed to set subscription')) {
+                  statusElement.innerHTML = '❌ Authentication failed - Invalid or inaccessible Subscription ID. Please verify your Subscription ID and <a href="/cli-device-login" style="color: #991b1b; font-weight: bold; text-decoration: underline;">try again</a>.';
+                } else {
+                  statusElement.innerHTML = '❌ Authentication failed - Please check your Azure credentials and <a href="/cli-device-login" style="color: #991b1b; font-weight: bold; text-decoration: underline;">try again</a>.';
+                }
               } else if (output.includes('Authentication completed') || 
                         output.includes('Verifying authentication') ||
                         output.includes('Current Subscription:') ||
@@ -1199,15 +1414,34 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
         "echo 'YOU MUST COMPLETE THE DEVICE LOGIN IN YOUR BROWSER!'",
     ]
     
+    # Add error handling for tenant validation
     if tenant:
-        script_parts.append(f"az login --tenant '{tenant}' --use-device-code")
+        script_parts.extend([
+            f"echo 'Attempting login with Tenant ID: {tenant}'",
+            f"if ! az login --tenant '{tenant}' --use-device-code 2>&1; then",
+            "    echo '❌ ERROR: Failed to authenticate with the provided Tenant ID.'",
+            f"    echo '❌ Please verify that Tenant ID \"{tenant}\" is correct and try again.'",
+            "    echo 'ℹ️ You can find your Tenant ID in the Azure Portal under Azure Active Directory > Properties.'",
+            "    exit 1",
+            "fi"
+        ])
     else:
-        script_parts.append("az login --use-device-code")
+        # This should never happen due to server-side validation, but just in case
+        script_parts.extend([
+            "echo '❌ ERROR: Tenant ID is required but was not provided.'",
+            "echo 'ℹ️ Please return to the form and enter your Azure Tenant ID.'",
+            "exit 1"
+        ])
     
     if subscription:
         script_parts.extend([
             f"echo 'Setting subscription to: {subscription}'",
-            f"az account set --subscription '{subscription}'"
+            f"if ! az account set --subscription '{subscription}' 2>&1; then",
+            "    echo '❌ ERROR: Failed to set subscription. The Subscription ID may be incorrect or you may not have access.'",
+            f"    echo '❌ Please verify that Subscription ID \"{subscription}\" is correct and you have access to it.'",
+            "    echo 'ℹ️ You can find your Subscription IDs in the Azure Portal under Subscriptions.'",
+            "    exit 1",
+            "fi"
         ])
     
     script_parts.extend([
