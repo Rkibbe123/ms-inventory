@@ -195,6 +195,21 @@ try {
             } else {
                 Write-Host "⚠️  Warning: $($unprotectedRemaining.Count) non-protected item(s) still remain" -ForegroundColor Yellow
                 Write-Host "   These items may have failed to delete or were added during cleanup" -ForegroundColor Yellow
+                
+                # List the items that remain
+                foreach ($item in $unprotectedRemaining) {
+                    $itemType = if (Test-IsDirectory $item) { "Directory" } else { "File" }
+                    Write-Host "   - $($item.Name) ($itemType)" -ForegroundColor Yellow
+                }
+                
+                # If unprotected items remain, this is a failure condition
+                if ($unprotectedRemaining.Count -gt 0) {
+                    Write-Host ""
+                    Write-Host "❌ CLEANUP VERIFICATION FAILED" -ForegroundColor Red
+                    Write-Host "   Unprotected items remain in the file share after cleanup" -ForegroundColor Red
+                    Write-Host "   This indicates incomplete cleanup and may cause issues with ARI" -ForegroundColor Red
+                    $failedCount += $unprotectedRemaining.Count
+                }
             }
         }
     } catch {
@@ -205,14 +220,23 @@ try {
     Write-Host ""
     Write-Host "=======================================" -ForegroundColor Cyan
     
-    # Exit with success if most items were deleted
+    # Exit with strict success criteria
+    # Success only if:
+    # 1. No items failed to delete, AND
+    # 2. No unprotected items remain after verification
     if ($failedCount -eq 0) {
-        exit 0
-    } elseif ($deletedCount -gt $failedCount) {
-        Write-Host "⚠️  Some items failed to delete, but cleanup was mostly successful" -ForegroundColor Yellow
+        Write-Host "✅ CLEANUP COMPLETED SUCCESSFULLY" -ForegroundColor Green
+        Write-Host "   All items deleted: $deletedCount" -ForegroundColor Green
+        Write-Host "   Protected items preserved: $($protectedItems.Count)" -ForegroundColor Cyan
+        Write-Host "   File share is clean and ready for ARI execution" -ForegroundColor Green
         exit 0
     } else {
-        Write-Host "❌ Too many items failed to delete" -ForegroundColor Red
+        Write-Host "❌ CLEANUP FAILED" -ForegroundColor Red
+        Write-Host "   Items successfully deleted: $deletedCount" -ForegroundColor Yellow
+        Write-Host "   Items failed to delete: $failedCount" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "   The file share is NOT clean and may contain old files" -ForegroundColor Red
+        Write-Host "   ARI execution should be blocked to prevent issues" -ForegroundColor Red
         exit 1
     }
     

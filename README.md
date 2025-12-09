@@ -115,6 +115,59 @@ For deploying ARI as a containerized web application with Azure File Share integ
 - 🔄 **Persistent Storage** - Azure File Share integration for report persistence
 - 🌐 **Web Interface** - User-friendly interface with device login authentication
 
+### 🧹 Automatic File Share Cleanup
+
+When deploying as a container with Azure File Share integration, ARI includes automatic cleanup functionality to ensure a fresh state before each execution.
+
+**How It Works:**
+
+1. **Before Each ARI Run**: The cleanup script (`clear-azure-fileshare.ps1`) automatically executes
+2. **Recursive Deletion**: All files and directories are deleted from the file share root
+3. **Protected Folders**: System folders like `.jobs` are automatically preserved
+4. **Validation**: After cleanup, the script verifies that only protected items remain
+5. **Error Handling**: If cleanup fails, ARI execution is **blocked** to prevent issues with old data
+
+**Configuration:**
+
+Set these environment variables in your container to enable cleanup:
+
+```bash
+AZURE_STORAGE_ACCOUNT=mystorageaccount
+AZURE_STORAGE_KEY=<your-storage-key>
+AZURE_FILE_SHARE=ari-data
+```
+
+**Behavior:**
+
+- ✅ **Cleanup succeeds**: ARI execution proceeds normally
+- ❌ **Cleanup fails**: ARI execution is blocked with a prominent error message
+- ⚠️ **Not configured**: Cleanup is skipped, ARI proceeds (old files may accumulate)
+
+**Protected Items:**
+
+The following folders are never deleted:
+- `.jobs` - Job persistence directory for workflow state
+
+**Logging:**
+
+All cleanup operations are explicitly logged:
+- Items to be deleted
+- Items being skipped (protected folders)
+- Deletion success/failure for each item
+- Final verification of remaining items
+- Clear error messages if cleanup fails
+
+**Troubleshooting:**
+
+If cleanup fails, check:
+1. Storage account credentials are valid
+2. File share exists and is accessible
+3. No network connectivity issues
+4. No files locked by other processes
+5. Sufficient permissions on storage account
+
+See the [Container Deployment Guide](CONTAINER-DEPLOYMENT.md) for detailed troubleshooting steps.
+
 ## 📖 Usage Guide
 
 ### Basic Commands
