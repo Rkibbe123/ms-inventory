@@ -281,6 +281,7 @@ function Remove-ItemWithRetry {
     
     $attempt = 0
     $success = $false
+    # Initialize delay for this item (reset for each new item to delete)
     $currentDelay = $script:RetryDelaySeconds
     
     while ($attempt -lt $script:MaxRetries -and -not $success) {
@@ -292,6 +293,8 @@ function Remove-ItemWithRetry {
             Write-Log "Validating existence of $ItemName before deletion (attempt $attempt/$script:MaxRetries)" -Level INFO
             
             try {
+                # Get-AzStorageFile works for both files and directories when retrieving from a path
+                # It returns the item metadata if it exists
                 $existingItem = Get-AzStorageFile -ShareName $ShareName -Path $Path -Context $Context -ErrorAction Stop
                 
                 if (-not $existingItem) {
@@ -310,7 +313,8 @@ function Remove-ItemWithRetry {
                     $script:DeletedCount++
                     return $true
                 }
-                # For other validation errors, log and continue with deletion attempt
+                # For other validation errors (including type mismatches), log and continue with deletion attempt
+                # The actual deletion command will provide the authoritative result
                 Write-Log "Could not validate existence of ${ItemName}: $($_.Exception.Message). Proceeding with deletion attempt." -Level WARNING
             }
             
