@@ -39,6 +39,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Helper function to check if an item is a directory
+function Test-IsDirectory {
+    param($item)
+    
+    # Check if it's a directory using IsDirectory property or CloudFileDirectory type
+    return ($item.PSObject.Properties.Name -contains 'IsDirectory' -and $item.IsDirectory) -or 
+           ($item -is [Microsoft.Azure.Storage.File.CloudFileDirectory])
+}
+
 Write-Host "🧹 Azure File Share Cleanup" -ForegroundColor Cyan
 Write-Host "=======================================" -ForegroundColor Cyan
 Write-Host "Storage Account: $StorageAccountName" -ForegroundColor Yellow
@@ -115,19 +124,12 @@ try {
         try {
             $itemName = $item.Name
             
-            # Check if it's a directory by checking for IsDirectory property or CloudFileDirectory type
-            if ($item.PSObject.Properties.Name -contains 'IsDirectory' -and $item.IsDirectory) {
-                # It's a directory - delete recursively
-                Write-Host "Deleting directory: $itemName" -ForegroundColor Gray
-                Remove-AzStorageDirectory -ShareName $FileShareName -Path $itemName -Context $context -Force -ErrorAction Stop
-                $deletedCount++
-            } elseif ($item -is [Microsoft.Azure.Storage.File.CloudFileDirectory]) {
-                # Type check for CloudFileDirectory
+            # Check if it's a directory and delete accordingly
+            if (Test-IsDirectory $item) {
                 Write-Host "Deleting directory: $itemName" -ForegroundColor Gray
                 Remove-AzStorageDirectory -ShareName $FileShareName -Path $itemName -Context $context -Force -ErrorAction Stop
                 $deletedCount++
             } else {
-                # It's a file
                 Write-Host "Deleting file: $itemName" -ForegroundColor Gray
                 Remove-AzStorageFile -ShareName $FileShareName -Path $itemName -Context $context -ErrorAction Stop
                 $deletedCount++
@@ -164,7 +166,7 @@ try {
         } else {
             Write-Host "📁 Remaining items in file share: $($remainingItems.Count)" -ForegroundColor Cyan
             foreach ($item in $remainingItems) {
-                $itemType = if ($item.PSObject.Properties.Name -contains 'IsDirectory' -and $item.IsDirectory) { "Directory" } else { "File" }
+                $itemType = if (Test-IsDirectory $item) { "Directory" } else { "File" }
                 $protectedMarker = if ($protectedFolders -contains $item.Name) { " [PROTECTED]" } else { "" }
                 Write-Host "   - $($item.Name) ($itemType)$protectedMarker" -ForegroundColor Gray
             }
