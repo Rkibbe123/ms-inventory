@@ -202,14 +202,12 @@ try {
                     Write-Host "   - $($item.Name) ($itemType)" -ForegroundColor Yellow
                 }
                 
-                # If unprotected items remain, this is a failure condition
-                if ($unprotectedRemaining.Count -gt 0) {
-                    Write-Host ""
-                    Write-Host "❌ CLEANUP VERIFICATION FAILED" -ForegroundColor Red
-                    Write-Host "   Unprotected items remain in the file share after cleanup" -ForegroundColor Red
-                    Write-Host "   This indicates incomplete cleanup and may cause issues with ARI" -ForegroundColor Red
-                    $failedCount += $unprotectedRemaining.Count
-                }
+                # Unprotected items remaining is a failure condition
+                Write-Host ""
+                Write-Host "❌ CLEANUP VERIFICATION FAILED" -ForegroundColor Red
+                Write-Host "   Unprotected items remain in the file share after cleanup" -ForegroundColor Red
+                Write-Host "   This indicates incomplete cleanup and may cause issues with ARI" -ForegroundColor Red
+                $failedCount += $unprotectedRemaining.Count
             }
         }
     } catch {

@@ -1475,7 +1475,7 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
         "    echo ''",
         "    echo '🔄 Running file share cleanup...'",
         "    echo ''",
-        "    ",
+        "",
         "    # Run cleanup script and capture exit code",
         "    if pwsh -NoProfile -ExecutionPolicy Bypass -File /app/powershell/clear-azure-fileshare.ps1 \\",
         "        -StorageAccountName \"$AZURE_STORAGE_ACCOUNT\" \\",
