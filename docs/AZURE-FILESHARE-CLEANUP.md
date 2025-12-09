@@ -63,6 +63,21 @@ This can lead to:
 - ❌ **Cleanup Failure** → ARI execution blocked, job fails with detailed error message
 - ⚪ **Cleanup Not Configured** → ARI proceeds without cleanup
 
+**What Happens During Cleanup Failure:**
+
+When cleanup fails, the file share may be in one of these states:
+
+1. **Partial Cleanup**: Some items were deleted before the failure
+2. **No Changes**: Failure occurred during pre-flight validation (nothing deleted)
+3. **Mixed State**: Some deletions succeeded, some failed (most common)
+
+The verification step reports exactly what remains in the file share, allowing you to:
+- Identify which files failed to delete
+- Understand the current state before troubleshooting
+- Perform manual cleanup if needed
+
+**Important**: ARI will NOT run until cleanup succeeds (or is disabled) to prevent mixing old and new reports.
+
 ## Configuration
 
 ### Required Environment Variables

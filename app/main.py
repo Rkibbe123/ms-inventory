@@ -1472,6 +1472,8 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
         "echo ''",
         "",
         "# Enable strict error handling for cleanup section",
+        "# This ensures any unexpected errors cause immediate failure",
+        "# The PowerShell cleanup script exit code is explicitly checked below",
         "set -e",
         "",
         "if [ ! -z \"$AZURE_STORAGE_ACCOUNT\" ] && [ ! -z \"$AZURE_STORAGE_KEY\" ] && [ ! -z \"$AZURE_FILE_SHARE\" ]; then",

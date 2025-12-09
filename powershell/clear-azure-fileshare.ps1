@@ -63,6 +63,9 @@ $script:FailedCount = 0
 $script:ProtectedCount = 0
 
 # Configuration
+# NOTE: These could be made configurable via script parameters or environment variables
+# if operators need to adjust retry behavior based on their network conditions.
+# For now, using sensible defaults that work for most scenarios.
 $MaxRetries = 3
 $RetryDelaySeconds = 2
 

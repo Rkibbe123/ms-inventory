@@ -119,9 +119,16 @@ This guide provides detailed troubleshooting steps for Azure File Share cleanup 
 
 4. **Check Azure Service Health**
    ```bash
-   # Check for service issues
+   # Check for Azure Storage service issues
+   # Use Azure Portal: https://status.azure.com or Azure Service Health
    az rest --method get \
-     --url "https://management.azure.com/subscriptions/{subscription-id}/providers/Microsoft.ResourceHealth/availabilityStatuses?api-version=2020-05-01"
+     --url "https://management.azure.com/subscriptions/{subscription-id}/providers/Microsoft.ResourceHealth/availabilityStatuses?api-version=2023-07-01"
+   
+   # Alternatively, check storage account health specifically
+   az storage account show \
+     --name mystorageaccount \
+     --resource-group my-rg \
+     --query statusOfPrimary
    ```
 
 #### Prevention
@@ -275,16 +282,22 @@ This guide provides detailed troubleshooting steps for Azure File Share cleanup 
      --scope /subscriptions/{sub-id}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{storage-account}
    ```
 
-2. **Grant Required Permissions**
+2. **Grant Required Permissions (if using Managed Identity)**
+   
+   **Note**: This script uses storage account keys by default, which have full access. Only follow this step if you're using Managed Identity or SAS tokens instead.
+   
    ```bash
-   # Assign Storage Blob Data Contributor role
+   # Assign Storage File Data SMB Share Contributor role (for RBAC auth)
    az role assignment create \
      --role "Storage File Data SMB Share Contributor" \
      --assignee-object-id {object-id} \
      --scope /subscriptions/{sub-id}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{storage-account}
    ```
 
-3. **Test with Storage Key**
+3. **Test with Storage Key (Recommended)**
+   
+   Storage account keys provide full access and are the recommended authentication method for cleanup:
+   
    ```bash
    # Verify key has full access
    az storage file delete \
@@ -295,9 +308,9 @@ This guide provides detailed troubleshooting steps for Azure File Share cleanup 
    ```
 
 #### Prevention
-- Use storage account keys for cleanup operations
-- Document required permissions in deployment guide
-- Use Managed Identity with appropriate roles
+- **Use storage account keys for cleanup operations** (simplest and most reliable)
+- Document required permissions if using alternative auth methods
+- Use Managed Identity with appropriate roles only for production scenarios
 - Regularly audit access permissions
 
 ---
