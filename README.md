@@ -117,15 +117,16 @@ For deploying ARI as a containerized web application with Azure File Share integ
 
 ### 🧹 Automatic File Share Cleanup
 
-When deploying as a container with Azure File Share integration, ARI includes automatic cleanup functionality to ensure a fresh state before each execution.
+When deploying as a container with Azure File Share integration, ARI includes enhanced automatic cleanup functionality to ensure a fresh state before each execution.
 
 **How It Works:**
 
-1. **Before Each ARI Run**: The cleanup script (`clear-azure-fileshare.ps1`) automatically executes
-2. **Recursive Deletion**: All files and directories are deleted from the file share root
-3. **Protected Folders**: System folders like `.jobs` are automatically preserved
-4. **Validation**: After cleanup, the script verifies that only protected items remain
-5. **Error Handling**: If cleanup fails, ARI execution is **blocked** to prevent issues with old data
+1. **Pre-flight Validation**: Tests connectivity, credentials, and file share accessibility
+2. **Protected Item Detection**: Identifies system folders and files to preserve
+3. **Recursive Deletion**: All non-protected files and directories are deleted
+4. **Retry Logic**: Up to 3 attempts with 2-second delays for transient failures
+5. **Verification**: Confirms only protected items remain after cleanup
+6. **Blocking on Failure**: If cleanup fails, ARI execution is **blocked** to prevent data integrity issues
 
 **Configuration:**
 
@@ -140,33 +141,44 @@ AZURE_FILE_SHARE=ari-data
 **Behavior:**
 
 - ✅ **Cleanup succeeds**: ARI execution proceeds normally
-- ❌ **Cleanup fails**: ARI execution is blocked with a prominent error message
+- ❌ **Cleanup fails**: ARI execution is **blocked** with detailed error message and troubleshooting steps
 - ⚠️ **Not configured**: Cleanup is skipped, ARI proceeds (old files may accumulate)
 
 **Protected Items:**
 
-The following folders are never deleted:
+The following folders and files are **never deleted**:
 - `.jobs` - Job persistence directory for workflow state
+- `.snapshots` - Azure Files snapshot directory
+- `$logs` - Azure Storage logs directory
+- `System Volume Information` - Windows system folder
+- `*.lock` - Lock files indicating active processes
+- `*.tmp` - Temporary files that may be in use
+- `.gitkeep` - Placeholder files for empty directories
 
-**Logging:**
+**Enhanced Logging:**
 
-All cleanup operations are explicitly logged:
-- Items to be deleted
-- Items being skipped (protected folders)
-- Deletion success/failure for each item
-- Final verification of remaining items
-- Clear error messages if cleanup fails
+All cleanup operations include structured logging with timestamps:
+- Pre-flight validation results
+- Items discovered and categorized (protected vs. deletable)
+- Deletion attempts with retry information
+- Final statistics (total, deleted, protected, failed, duration)
+- Verification results
+- Detailed error messages with troubleshooting steps
 
-**Troubleshooting:**
+**Quick Troubleshooting:**
 
-If cleanup fails, check:
-1. Storage account credentials are valid
-2. File share exists and is accessible
-3. No network connectivity issues
-4. No files locked by other processes
-5. Sufficient permissions on storage account
+If cleanup fails, the error message includes specific guidance. Common issues:
+1. **Authentication**: Verify storage account key hasn't been rotated
+2. **Network**: Check firewall rules allow container access
+3. **Permissions**: Ensure sufficient permissions on storage account
+4. **Locked Files**: Check for concurrent access to file share
 
-See the [Container Deployment Guide](CONTAINER-DEPLOYMENT.md) for detailed troubleshooting steps.
+**Detailed Documentation:**
+
+- 📖 [Complete Cleanup Guide](docs/AZURE-FILESHARE-CLEANUP.md) - Configuration, features, testing procedures
+- 🔧 [Troubleshooting Guide](docs/CLEANUP-TROUBLESHOOTING.md) - Detailed error scenarios and resolutions
+
+See the [Container Deployment Guide](CONTAINER-DEPLOYMENT.md) for setup instructions.
 
 ## 📖 Usage Guide
 
