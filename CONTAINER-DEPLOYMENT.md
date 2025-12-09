@@ -10,6 +10,14 @@ This guide explains how to deploy Azure Resource Inventory (ARI) as a containeri
 
 Before each ARI execution, the container can automatically clean up the Azure File Share to ensure a fresh state for report generation. This prevents accumulation of old reports and diagrams.
 
+**Key Features:**
+- ✅ Pre-flight validation of connectivity and credentials
+- ✅ Comprehensive protection for system folders and files
+- ✅ Retry logic with 3 attempts for transient failures
+- ✅ Structured logging with timestamps and severity levels
+- ✅ Cleanup statistics and duration tracking
+- ✅ Strict blocking behavior when cleanup fails
+
 **Configuration:**
 
 To enable automatic cleanup, set the following environment variables in your container app:
@@ -17,6 +25,42 @@ To enable automatic cleanup, set the following environment variables in your con
 - `AZURE_STORAGE_ACCOUNT`: The name of your Azure Storage Account
 - `AZURE_STORAGE_KEY`: The access key for your Azure Storage Account
 - `AZURE_FILE_SHARE`: The name of the Azure File Share to clean
+
+**Step-by-Step Configuration:**
+
+1. **Get Storage Account Key:**
+   ```bash
+   STORAGE_KEY=$(az storage account keys list \
+     --account-name mystorageaccount \
+     --resource-group my-rg \
+     --query "[0].value" -o tsv)
+   ```
+
+2. **Configure via Azure CLI:**
+   ```bash
+   az containerapp update \
+     --name azure-resource-inventory \
+     --resource-group my-rg \
+     --set-env-vars \
+       AZURE_STORAGE_ACCOUNT=mystorageaccount \
+       AZURE_STORAGE_KEY=$STORAGE_KEY \
+       AZURE_FILE_SHARE=ari-data
+   ```
+
+3. **Configure via Azure Portal:**
+   - Navigate to your Container App → **Environment variables**
+   - Add `AZURE_STORAGE_ACCOUNT` with value (e.g., `mystorageaccount`)
+   - Add `AZURE_STORAGE_KEY` as a **Secret** with the storage key value
+   - Add `AZURE_FILE_SHARE` with value (e.g., `ari-data`)
+   - Click **Save** and restart the container
+
+4. **Verify Configuration:**
+   ```bash
+   az containerapp show \
+     --name azure-resource-inventory \
+     --resource-group my-rg \
+     --query properties.template.containers[0].env
+   ```
 
 **Example Container App Configuration:**
 
@@ -47,12 +91,109 @@ properties:
 
 **Behavior:**
 
-- If the environment variables are set, the cleanup script runs automatically before each ARI execution
-- The script recursively deletes all files and directories from the file share root
-- **Protected folders** (`.jobs`) are automatically excluded from deletion to preserve job state
-- After cleanup, the script verifies success by listing remaining files
-- If the environment variables are not set, cleanup is skipped (no errors)
-- Cleanup failures are logged but don't prevent ARI execution from continuing
+- ✅ **Environment variables set**: Cleanup runs automatically before each ARI execution
+- ✅ **Cleanup succeeds**: ARI execution proceeds normally
+- ❌ **Cleanup fails**: ARI execution is **BLOCKED** with detailed error message
+- ⚪ **Environment variables not set**: Cleanup is skipped, no errors (old files may accumulate)
+
+**Protected Items:**
+
+The following are **automatically excluded** from deletion to preserve system integrity:
+
+**Protected Folders:**
+- `.jobs` - Job persistence directory for workflow state
+- `.snapshots` - Azure Files snapshot directory
+- `$logs` - Azure Storage logs directory
+- `System Volume Information` - Windows system folder
+
+**Protected File Patterns:**
+- `*.lock` - Lock files indicating active processes
+- `*.tmp` - Temporary files that may be in use
+- `.gitkeep` - Placeholder files for empty directories
+
+**Validation Procedures:**
+
+After configuring cleanup, validate it works correctly:
+
+1. **Test with Sample Files:**
+   ```bash
+   # Upload test files
+   echo "test" > test-file.txt
+   az storage file upload \
+     --share-name ari-data \
+     --source test-file.txt \
+     --account-name mystorageaccount
+   
+   # Trigger ARI job via web interface
+   # Check logs to verify cleanup ran
+   
+   # Verify test file was deleted
+   az storage file list \
+     --share-name ari-data \
+     --account-name mystorageaccount
+   ```
+
+2. **Verify Protected Folders:**
+   ```bash
+   # Create .jobs folder if it doesn't exist
+   az storage directory create \
+     --name .jobs \
+     --share-name ari-data \
+     --account-name mystorageaccount
+   
+   # Upload test file to .jobs
+   echo "test job" > job-test.json
+   az storage file upload \
+     --share-name ari-data \
+     --path .jobs/job-test.json \
+     --source job-test.json \
+     --account-name mystorageaccount
+   
+   # Trigger cleanup
+   # Verify .jobs folder and its contents remain
+   ```
+
+3. **Test Failure Scenario:**
+   ```bash
+   # Temporarily set invalid key
+   az containerapp update \
+     --name azure-resource-inventory \
+     --resource-group my-rg \
+     --set-env-vars AZURE_STORAGE_KEY=invalid_key_for_testing
+   
+   # Trigger ARI job
+   # Expected: Job should fail with cleanup error
+   # Expected: Detailed troubleshooting steps in error message
+   
+   # Restore correct key
+   az containerapp update \
+     --name azure-resource-inventory \
+     --resource-group my-rg \
+     --set-env-vars AZURE_STORAGE_KEY=$STORAGE_KEY
+   ```
+
+**Troubleshooting Cleanup Issues:**
+
+If cleanup fails, check the container logs for detailed error messages:
+
+```bash
+az containerapp logs show \
+  --name azure-resource-inventory \
+  --resource-group my-rg \
+  --tail 500
+```
+
+Common issues and solutions:
+
+| Issue | Solution |
+|-------|----------|
+| **Authentication failure** | Verify storage key hasn't been rotated; get new key if needed |
+| **Network connectivity** | Check storage account firewall rules; allow container subnet |
+| **File share not found** | Verify file share exists and name is correct in env vars |
+| **Files locked** | Check for concurrent access; scale to single instance during cleanup |
+| **Insufficient permissions** | Verify storage account key has full access; check RBAC roles |
+
+For detailed troubleshooting, see [CLEANUP-TROUBLESHOOTING.md](docs/CLEANUP-TROUBLESHOOTING.md)
 
 ### 📊 Diagram Generation & Validation
 
