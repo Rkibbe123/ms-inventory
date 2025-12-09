@@ -544,9 +544,21 @@ try {
     Write-Host ""
     Write-Log "Verifying cleanup..." -Level INFO
     
+    function Get-UnprotectedItemsCaseInsensitive {
+        param($items)
+        $unprotected = @()
+        foreach ($item in $items) {
+            $isDirectory = Test-IsDirectory $item
+            # Case-insensitive check for protection
+            if (-not (Test-IsProtected -ItemName $item.Name.ToLower() -IsDirectory $isDirectory)) {
+                $unprotected += $item
+            }
+        }
+        return $unprotected
+    }
+    
     try {
         $remainingItems = Get-AzStorageFile -ShareName $FileShareName -Context $context -ErrorAction Stop
-        
         if ($remainingItems.Count -eq 0) {
             Write-Log "File share is now completely empty" -Level SUCCESS
         } else {
@@ -554,39 +566,35 @@ try {
             foreach ($item in $remainingItems) {
                 $isDirectory = Test-IsDirectory $item
                 $itemType = if ($isDirectory) { "Directory" } else { "File" }
-                $isProtected = Test-IsProtected -ItemName $item.Name -IsDirectory $isDirectory
+                $isProtected = Test-IsProtected -ItemName $item.Name.ToLower() -IsDirectory $isDirectory
                 $protectedMarker = if ($isProtected) { " [PROTECTED]" } else { "" }
-                Write-Log "  - $($item.Name) ($itemType)$protectedMarker" -Level INFO
+                Write-Log "  - $($item.Name) ($itemType)$protectedMarker (FullPath: $($item.CloudFile.Uri.AbsoluteUri))" -Level INFO
             }
-            
-            # Check if only protected items remain
-            $unprotectedRemaining = @()
-            foreach ($item in $remainingItems) {
-                $isDirectory = Test-IsDirectory $item
-                if (-not (Test-IsProtected -ItemName $item.Name -IsDirectory $isDirectory)) {
-                    $unprotectedRemaining += $item
-                }
-            }
-            
+            $unprotectedRemaining = Get-UnprotectedItemsCaseInsensitive $remainingItems
             if ($unprotectedRemaining.Count -eq 0) {
                 Write-Log "All non-protected items were successfully deleted" -Level SUCCESS
             } else {
-                Write-Log "Warning: $($unprotectedRemaining.Count) non-protected item(s) still remain" -Level WARNING
-                Write-Log "These items may have failed to delete or were added during cleanup" -Level WARNING
-                
-                # List the items that remain
-                foreach ($item in $unprotectedRemaining) {
-                    $isDirectory = Test-IsDirectory $item
-                    $itemType = if ($isDirectory) { "Directory" } else { "File" }
-                    Write-Log "  - $($item.Name) ($itemType)" -Level WARNING
+                Write-Log "Warning: $($unprotectedRemaining.Count) non-protected item(s) still remain after first check" -Level WARNING
+                Write-Log "Waiting 5 seconds and re-listing to account for Azure consistency delay..." -Level WARNING
+                Start-Sleep -Seconds 5
+                $remainingItems2 = Get-AzStorageFile -ShareName $FileShareName -Context $context -ErrorAction Stop
+                $unprotectedRemaining2 = Get-UnprotectedItemsCaseInsensitive $remainingItems2
+                if ($unprotectedRemaining2.Count -eq 0) {
+                    Write-Log "All non-protected items were deleted after delay (consistency delay)" -Level SUCCESS
+                } else {
+                    Write-Log "Warning: $($unprotectedRemaining2.Count) non-protected item(s) still remain after retry" -Level WARNING
+                    Write-Log "These items may have failed to delete or were added during cleanup" -Level WARNING
+                    foreach ($item in $unprotectedRemaining2) {
+                        $isDirectory = Test-IsDirectory $item
+                        $itemType = if ($isDirectory) { "Directory" } else { "File" }
+                        Write-Log "  - $($item.Name) ($itemType) (FullPath: $($item.CloudFile.Uri.AbsoluteUri))" -Level WARNING
+                    }
+                    Write-Host ""
+                    Write-Log "CLEANUP VERIFICATION FAILED" -Level ERROR
+                    Write-Log "Unprotected items remain in the file share after cleanup (post-delay)" -Level ERROR
+                    Write-Log "This indicates incomplete cleanup and may cause issues with ARI" -Level ERROR
+                    $script:FailedCount += $unprotectedRemaining2.Count
                 }
-                
-                # Unprotected items remaining is a failure condition
-                Write-Host ""
-                Write-Log "CLEANUP VERIFICATION FAILED" -Level ERROR
-                Write-Log "Unprotected items remain in the file share after cleanup" -Level ERROR
-                Write-Log "This indicates incomplete cleanup and may cause issues with ARI" -Level ERROR
-                $script:FailedCount += $unprotectedRemaining.Count
             }
         }
     } catch {
