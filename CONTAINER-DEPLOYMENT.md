@@ -48,9 +48,11 @@ properties:
 **Behavior:**
 
 - If the environment variables are set, the cleanup script runs automatically before each ARI execution
-- The script deletes all files and directories from the file share
+- The script recursively deletes all files and directories from the file share root
+- **Protected folders** (`.jobs`) are automatically excluded from deletion to preserve job state
+- After cleanup, the script verifies success by listing remaining files
 - If the environment variables are not set, cleanup is skipped (no errors)
-- Cleanup failures are logged but don't prevent ARI execution
+- Cleanup failures are logged but don't prevent ARI execution from continuing
 
 ### 📊 Diagram Generation & Validation
 
@@ -185,9 +187,29 @@ az containerapp logs show \
 
 Look for these log messages:
 
+**Cleanup Starting:**
 - `🧹 Checking for Azure File Share cleanup configuration...`
 - `Azure Storage configuration found. Running file share cleanup...`
-- `✅ File share cleanup completed`
+
+**Cleanup Progress:**
+- `Connecting to Azure Storage...`
+- `✅ Connected to storage account successfully`
+- `Found X items in file share`
+- `🔒 Protected folder will be preserved: .jobs`
+- `Items to delete: X`
+- `Deleting file: filename` or `Deleting directory: dirname`
+
+**Cleanup Verification:**
+- `🔍 Verifying cleanup...`
+- `📁 Remaining items in file share: X`
+- `✅ All non-protected items were successfully deleted`
+
+**Cleanup Complete:**
+- `✅ File share cleanup completed successfully`
+
+**Cleanup Errors:**
+- `⚠️ File share cleanup encountered errors (exit code: X)`
+- `❌ ERROR: Failed to clear file share`
 
 ### Check Diagram Generation
 
@@ -216,17 +238,103 @@ After ARI completes, logs will show:
 
 ### Cleanup Fails
 
+**Symptoms:**
+- Container logs show: `❌ ERROR: Failed to clear file share`
+- Old files continue to accumulate in file share
+- Cleanup script exits with non-zero code
+
+**Diagnostic Steps:**
+
 ```powershell
-# Verify storage account access
+# 1. Verify storage account exists and is accessible
 az storage account show \
     --name mystorageaccount \
     --resource-group my-rg
 
-# List file share contents
+# 2. List file share contents to see what's there
 az storage file list \
     --share-name ari-data \
     --account-name mystorageaccount \
     --account-key $storageKey
+
+# 3. Test storage account key validity
+az storage account keys list \
+    --account-name mystorageaccount \
+    --resource-group my-rg
+
+# 4. Check file share quota and usage
+az storage share show \
+    --name ari-data \
+    --account-name mystorageaccount \
+    --account-key $storageKey
+```
+
+**Common Causes:**
+
+1. **Invalid Storage Account Key**
+   - Solution: Regenerate key and update environment variable
+   ```powershell
+   $storageKey = az storage account keys list \
+       --account-name mystorageaccount \
+       --resource-group my-rg \
+       --query "[0].value" \
+       --output tsv
+   ```
+
+2. **File Share Does Not Exist**
+   - Solution: Create the file share
+   ```powershell
+   az storage share create \
+       --name ari-data \
+       --account-name mystorageaccount \
+       --account-key $storageKey
+   ```
+
+3. **Network Connectivity Issues**
+   - Check if container can reach Azure Storage endpoints
+   - Verify firewall rules on storage account
+   - Solution: Add container subnet to storage account network rules
+
+4. **Files Locked or In Use**
+   - Files may be locked by another process
+   - Solution: Check for concurrent ARI executions
+   - Solution: Manually delete locked files via Azure Portal
+
+5. **Insufficient Permissions**
+   - Storage account key may lack permissions
+   - Solution: Verify key is from correct storage account
+   - Solution: Use primary or secondary key with full access
+
+**Manual Cleanup:**
+
+If automatic cleanup continues to fail, you can manually clean the file share:
+
+```powershell
+# Using Azure CLI
+az storage file delete-batch \
+    --source ari-data \
+    --account-name mystorageaccount \
+    --account-key $storageKey
+
+# Or via Azure Portal
+# Navigate to: Storage Account > File shares > ari-data > Browse
+# Select files/folders and click Delete
+```
+
+**Verification After Fix:**
+
+After resolving cleanup issues, verify it works:
+
+```bash
+# Run a test ARI execution and watch logs
+az containerapp logs show \
+    --name azure-resource-inventory \
+    --resource-group my-rg \
+    --follow
+
+# Look for successful cleanup messages:
+# ✅ File share cleanup completed successfully
+# ✅ All non-protected items were successfully deleted
 ```
 
 ### Diagrams Not Generated
