@@ -36,6 +36,11 @@ Clears all files and directories from an Azure Storage File Share before each AR
 The following folders are automatically excluded from cleanup:
 - `.jobs` - Job persistence directory used by the Flask application
 
+**Note:** If you need to manually delete protected folders (e.g., for troubleshooting or reset scenarios), you can either:
+1. Use the Azure Portal to manually delete the folder from the file share
+2. Use Azure CLI: `az storage directory delete --name .jobs --share-name ari-data --account-name mystorageaccount --account-key $key`
+3. Temporarily modify the script to remove the folder from the `$protectedFolders` array (not recommended for production)
+
 **Exit Codes:**
 
 - `0` - Success (cleanup completed)

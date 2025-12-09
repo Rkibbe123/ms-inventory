@@ -41,6 +41,21 @@ $ErrorActionPreference = 'Stop'
 
 # Helper function to check if an item is a directory
 function Test-IsDirectory {
+    <#
+    .SYNOPSIS
+        Determines if an Azure Storage File item is a directory.
+    
+    .DESCRIPTION
+        Checks if an Azure Storage File item is a directory by examining its
+        IsDirectory property or type. Supports both property-based and type-based detection.
+    
+    .PARAMETER item
+        The Azure Storage File item to check.
+    
+    .OUTPUTS
+        System.Boolean
+        Returns $true if the item is a directory, $false otherwise.
+    #>
     param($item)
     
     # Check if it's a directory using IsDirectory property or CloudFileDirectory type
