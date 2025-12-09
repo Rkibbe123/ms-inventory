@@ -311,7 +311,7 @@ function Remove-ItemWithRetry {
                     return $true
                 }
                 # For other validation errors, log and continue with deletion attempt
-                Write-Log "Could not validate existence of $ItemName: $($_.Exception.Message). Proceeding with deletion attempt." -Level WARNING
+                Write-Log "Could not validate existence of ${ItemName}: $($_.Exception.Message). Proceeding with deletion attempt." -Level WARNING
             }
             
             # Proceed with deletion
