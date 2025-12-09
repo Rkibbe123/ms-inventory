@@ -61,13 +61,16 @@ $script:TotalItems = 0
 $script:DeletedCount = 0
 $script:FailedCount = 0
 $script:ProtectedCount = 0
+$script:ResourceNotFoundCount = 0  # Track ResourceNotFound errors (treated as success)
+$script:TransientErrorCount = 0    # Track transient errors encountered
 
 # Configuration
 # NOTE: These could be made configurable via script parameters or environment variables
 # if operators need to adjust retry behavior based on their network conditions.
 # For now, using sensible defaults that work for most scenarios.
-$MaxRetries = 3
+$MaxRetries = 5
 $RetryDelaySeconds = 2
+$MaxRetryDelaySeconds = 16  # For exponential backoff
 
 # Logging function with timestamps and severity levels
 function Write-Log {
@@ -193,11 +196,61 @@ function Test-IsProtected {
     return $false
 }
 
+# Helper function to check if an error is transient
+function Test-IsTransientError {
+    <#
+    .SYNOPSIS
+        Determines if an error is transient and should be retried.
+    
+    .PARAMETER ErrorRecord
+        The error record to check.
+    
+    .OUTPUTS
+        System.Boolean
+        Returns $true if the error is transient, $false otherwise.
+    #>
+    param(
+        [System.Management.Automation.ErrorRecord]$ErrorRecord
+    )
+    
+    $errorMessage = $ErrorRecord.Exception.Message
+    $transientPatterns = @(
+        'timeout',
+        'timed out',
+        'connection reset',
+        'connection aborted',
+        'network',
+        'temporarily unavailable',
+        'service is busy',
+        'throttled',
+        'too many requests',
+        '429',
+        '503',
+        '500',
+        'internal server error'
+    )
+    
+    foreach ($pattern in $transientPatterns) {
+        if ($errorMessage -like "*$pattern*") {
+            return $true
+        }
+    }
+    
+    return $false
+}
+
 # Function to delete an item with retry logic
 function Remove-ItemWithRetry {
     <#
     .SYNOPSIS
-        Removes an item from Azure File Share with retry logic.
+        Removes an item from Azure File Share with enhanced retry logic and error handling.
+    
+    .DESCRIPTION
+        This function attempts to delete a file or directory from Azure File Share with:
+        - Validation of file existence before deletion
+        - Exponential backoff for transient errors
+        - Special handling for ResourceNotFound errors
+        - Detailed error context logging
     
     .PARAMETER ShareName
         The name of the file share.
@@ -228,11 +281,40 @@ function Remove-ItemWithRetry {
     
     $attempt = 0
     $success = $false
+    $currentDelay = $script:RetryDelaySeconds
     
     while ($attempt -lt $script:MaxRetries -and -not $success) {
         $attempt++
         
         try {
+            # First, validate that the item still exists before attempting deletion
+            # This prevents ResourceNotFound errors if the item was already deleted
+            Write-Log "Validating existence of $ItemName before deletion (attempt $attempt/$script:MaxRetries)" -Level INFO
+            
+            try {
+                $existingItem = Get-AzStorageFile -ShareName $ShareName -Path $Path -Context $Context -ErrorAction Stop
+                
+                if (-not $existingItem) {
+                    Write-Log "Item $ItemName no longer exists (already deleted or never existed). Considering as success." -Level WARNING
+                    $script:ResourceNotFoundCount++
+                    $success = $true
+                    $script:DeletedCount++
+                    return $true
+                }
+            } catch {
+                # If we get a ResourceNotFound error during validation, the item doesn't exist
+                if ($_.Exception.Message -like "*ResourceNotFound*" -or $_.Exception.Message -like "*404*" -or $_.Exception.Message -like "*does not exist*") {
+                    Write-Log "Item $ItemName does not exist (ResourceNotFound during validation). Considering as already deleted." -Level INFO
+                    $script:ResourceNotFoundCount++
+                    $success = $true
+                    $script:DeletedCount++
+                    return $true
+                }
+                # For other validation errors, log and continue with deletion attempt
+                Write-Log "Could not validate existence of $ItemName: $($_.Exception.Message). Proceeding with deletion attempt." -Level WARNING
+            }
+            
+            # Proceed with deletion
             if ($IsDirectory) {
                 Write-Log "Deleting directory: $ItemName (attempt $attempt/$script:MaxRetries)" -Level INFO
                 Remove-AzStorageDirectory -ShareName $ShareName -Path $Path -Context $Context -Force -ErrorAction Stop
@@ -243,14 +325,66 @@ function Remove-ItemWithRetry {
             
             $success = $true
             $script:DeletedCount++
+            Write-Log "Successfully deleted: $ItemName" -Level SUCCESS
             return $true
             
         } catch {
+            $errorMessage = $_.Exception.Message
+            $errorType = $_.Exception.GetType().Name
+            
+            # Check if this is a ResourceNotFound error
+            if ($errorMessage -like "*ResourceNotFound*" -or $errorMessage -like "*404*" -or $errorMessage -like "*does not exist*") {
+                Write-Log "Item $ItemName not found during deletion (ResourceNotFound). Likely already deleted by another process or due to timing." -Level WARNING
+                Write-Log "Error details: $errorMessage" -Level WARNING
+                # Consider this a success since the item no longer exists
+                $script:ResourceNotFoundCount++
+                $success = $true
+                $script:DeletedCount++
+                return $true
+            }
+            
+            # Check if this is a transient error that should be retried
+            $isTransient = Test-IsTransientError -ErrorRecord $_
+            
+            if ($isTransient) {
+                $script:TransientErrorCount++
+            }
+            
             if ($attempt -lt $script:MaxRetries) {
-                Write-Log "Failed to delete $ItemName (attempt $attempt/$script:MaxRetries): $($_.Exception.Message). Retrying in $script:RetryDelaySeconds seconds..." -Level WARNING
-                Start-Sleep -Seconds $script:RetryDelaySeconds
+                # Log detailed error context
+                Write-Log "Failed to delete $ItemName (attempt $attempt/$script:MaxRetries)" -Level WARNING
+                Write-Log "  Error Type: $errorType" -Level WARNING
+                Write-Log "  Error Message: $errorMessage" -Level WARNING
+                Write-Log "  Item Path: $Path" -Level WARNING
+                Write-Log "  Item Type: $(if ($IsDirectory) { 'Directory' } else { 'File' })" -Level WARNING
+                Write-Log "  Transient Error: $(if ($isTransient) { 'Yes' } else { 'No' })" -Level WARNING
+                
+                # Use exponential backoff for transient errors
+                if ($isTransient) {
+                    Write-Log "Transient error detected. Retrying with exponential backoff..." -Level WARNING
+                    Write-Log "Waiting $currentDelay seconds before retry..." -Level WARNING
+                    Start-Sleep -Seconds $currentDelay
+                    # Double the delay for next attempt, up to max
+                    $currentDelay = [Math]::Min($currentDelay * 2, $script:MaxRetryDelaySeconds)
+                } else {
+                    Write-Log "Non-transient error detected. Retrying with standard delay..." -Level WARNING
+                    Write-Log "Waiting $script:RetryDelaySeconds seconds before retry..." -Level WARNING
+                    Start-Sleep -Seconds $script:RetryDelaySeconds
+                }
             } else {
-                Write-Log "Failed to delete $ItemName after $script:MaxRetries attempts: $($_.Exception.Message)" -Level ERROR
+                # Final failure after all retries
+                Write-Log "FAILED to delete $ItemName after $script:MaxRetries attempts" -Level ERROR
+                Write-Log "  Final Error Type: $errorType" -Level ERROR
+                Write-Log "  Final Error Message: $errorMessage" -Level ERROR
+                Write-Log "  Item Path: $Path" -Level ERROR
+                Write-Log "  Item Type: $(if ($IsDirectory) { 'Directory' } else { 'File' })" -Level ERROR
+                Write-Log "  Share Name: $ShareName" -Level ERROR
+                
+                # Log stack trace for debugging
+                if ($_.ScriptStackTrace) {
+                    Write-Log "  Stack Trace: $($_.ScriptStackTrace)" -Level ERROR
+                }
+                
                 $script:FailedCount++
                 return $false
             }
@@ -466,6 +600,12 @@ try {
     Write-Log "  Items deleted: $script:DeletedCount" -Level SUCCESS
     Write-Log "  Protected items preserved: $script:ProtectedCount" -Level INFO
     Write-Log "  Items failed: $script:FailedCount" -Level $(if ($script:FailedCount -gt 0) { 'ERROR' } else { 'INFO' })
+    if ($script:ResourceNotFoundCount -gt 0) {
+        Write-Log "  ResourceNotFound errors (handled): $script:ResourceNotFoundCount" -Level INFO
+    }
+    if ($script:TransientErrorCount -gt 0) {
+        Write-Log "  Transient errors encountered: $script:TransientErrorCount" -Level WARNING
+    }
     Write-Log "  Duration: $($duration.TotalSeconds.ToString('F2')) seconds" -Level INFO
     Write-Host "=======================================" -ForegroundColor Cyan
     Write-Host ""
@@ -491,7 +631,9 @@ try {
         Write-Log "  1. Check if files are locked by another process" -Level INFO
         Write-Log "  2. Verify storage account permissions" -Level INFO
         Write-Log "  3. Review error messages above for specific failures" -Level INFO
-        Write-Log "  4. Consider manual cleanup if issues persist" -Level INFO
+        Write-Log "  4. Check for case sensitivity issues in file paths" -Level INFO
+        Write-Log "  5. Verify network stability for transient error patterns" -Level INFO
+        Write-Log "  6. Consider manual cleanup if issues persist" -Level INFO
         
         exit 1
     }
