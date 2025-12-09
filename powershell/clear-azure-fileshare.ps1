@@ -59,8 +59,10 @@ function Test-IsDirectory {
     param($item)
     
     # Check if it's a directory using IsDirectory property or CloudFileDirectory type
-    return ($item.PSObject.Properties.Name -contains 'IsDirectory' -and $item.IsDirectory) -or 
-           ($item -is [Microsoft.Azure.Storage.File.CloudFileDirectory])
+    return (
+        ($item.PSObject.Properties.Name -contains 'IsDirectory' -and $item.IsDirectory) -or 
+        ($item -is [Microsoft.Azure.Storage.File.CloudFileDirectory])
+    )
 }
 
 Write-Host "🧹 Azure File Share Cleanup" -ForegroundColor Cyan
