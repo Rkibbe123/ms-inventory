@@ -181,6 +181,33 @@ Write-Host "Test 15: Checking for cleanup verification..." -ForegroundColor Yell
 $hasVerification = $scriptContent -match 'Verifying cleanup'
 Test-Result -TestName "Cleanup verification" -Passed $hasVerification -Message $(if (-not $hasVerification) { "Cleanup verification not found" })
 
+# Test 16: Check for directory recreation functionality
+Write-Host "Test 16: Checking for directory recreation..." -ForegroundColor Yellow
+$hasRecreateFunction = $scriptContent -match 'function\s+New-DirectoryWithRetry'
+$hasDirectoriesToRecreate = $scriptContent -match '\$DirectoriesToRecreate'
+$hasRecreateLogic = $scriptContent -match 'Recreating required directories'
+$hasRecreation = $hasRecreateFunction -and $hasDirectoriesToRecreate -and $hasRecreateLogic
+Test-Result -TestName "Directory recreation functionality" -Passed $hasRecreation -Message $(if (-not $hasRecreation) { "Directory recreation logic not found" })
+
+# Test 17: Check for extended delay after directory deletion
+Write-Host "Test 17: Checking for directory consistency delay..." -ForegroundColor Yellow
+$hasConsistencyDelay = $scriptContent -match '\$DirectoryConsistencyDelaySeconds'
+$hasDelayAfterDeletion = $scriptContent -match 'Waiting.*seconds for Azure API consistency'
+$hasExtendedDelay = $hasConsistencyDelay -and $hasDelayAfterDeletion
+Test-Result -TestName "Extended directory deletion delay" -Passed $hasExtendedDelay -Message $(if (-not $hasExtendedDelay) { "Extended delay after directory deletion not found" })
+
+# Test 18: Check for RecreatedCount statistic
+Write-Host "Test 18: Checking for directory recreation statistics..." -ForegroundColor Yellow
+$hasRecreatedCount = $scriptContent -match '\$script:RecreatedCount'
+$hasRecreatedInStats = $scriptContent -match 'Directories recreated:'
+$hasRecreationStats = $hasRecreatedCount -and $hasRecreatedInStats
+Test-Result -TestName "Directory recreation statistics" -Passed $hasRecreationStats -Message $(if (-not $hasRecreationStats) { "Directory recreation statistics not found" })
+
+# Test 19: Check for AzureResourceInventory directory in recreation list
+Write-Host "Test 19: Checking for AzureResourceInventory directory recreation..." -ForegroundColor Yellow
+$hasAzureResourceInventory = $scriptContent -match "'AzureResourceInventory'"
+Test-Result -TestName "AzureResourceInventory directory in recreation list" -Passed $hasAzureResourceInventory -Message $(if (-not $hasAzureResourceInventory) { "AzureResourceInventory directory not in recreation list" })
+
 # Display final results
 Write-Host ""
 Write-Host "=== TEST RESULTS ===" -ForegroundColor Cyan
@@ -199,6 +226,8 @@ if ($testResults.Failed -eq 0) {
     Write-Host "  ✓ Transient error detection" -ForegroundColor White
     Write-Host "  ✓ Enhanced logging and statistics" -ForegroundColor White
     Write-Host "  ✓ Improved troubleshooting guidance" -ForegroundColor White
+    Write-Host "  ✓ Directory recreation after deletion" -ForegroundColor White
+    Write-Host "  ✓ Extended delays for Azure API consistency" -ForegroundColor White
     Write-Host ""
     exit 0
 } else {

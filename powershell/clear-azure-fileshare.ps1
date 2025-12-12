@@ -63,6 +63,7 @@ $script:FailedCount = 0
 $script:ProtectedCount = 0
 $script:ResourceNotFoundCount = 0  # Track ResourceNotFound errors (treated as success)
 $script:TransientErrorCount = 0    # Track transient errors encountered
+$script:RecreatedCount = 0         # Track recreated directories
 
 # Configuration
 # NOTE: These could be made configurable via script parameters or environment variables
@@ -71,6 +72,13 @@ $script:TransientErrorCount = 0    # Track transient errors encountered
 $MaxRetries = 5
 $RetryDelaySeconds = 2
 $MaxRetryDelaySeconds = 16  # For exponential backoff
+$DirectoryConsistencyDelaySeconds = 10  # Delay after directory deletion for Azure consistency
+
+# Directories to recreate after deletion to ensure app functionality
+# These are application-specific directories that need to exist for proper operation
+$DirectoriesToRecreate = @(
+    'AzureResourceInventory'
+)
 
 # Logging function with timestamps and severity levels
 function Write-Log {
@@ -239,6 +247,111 @@ function Test-IsTransientError {
     return $false
 }
 
+# Helper function to recreate a directory
+function New-DirectoryWithRetry {
+    <#
+    .SYNOPSIS
+        Creates a directory in Azure File Share with retry logic.
+    
+    .DESCRIPTION
+        This function attempts to create a directory in Azure File Share with:
+        - Retry logic for transient failures
+        - Existence check before creation
+        - Detailed logging
+    
+    .PARAMETER ShareName
+        The name of the file share.
+    
+    .PARAMETER DirectoryName
+        The name of the directory to create.
+    
+    .PARAMETER Context
+        The storage context.
+    
+    .OUTPUTS
+        System.Boolean
+        Returns $true if creation succeeded, $false otherwise.
+    #>
+    param(
+        [string]$ShareName,
+        [string]$DirectoryName,
+        [object]$Context
+    )
+    
+    $attempt = 0
+    $success = $false
+    $currentDelay = $script:RetryDelaySeconds
+    
+    while ($attempt -lt $script:MaxRetries -and -not $success) {
+        $attempt++
+        
+        try {
+            # First check if directory already exists
+            Write-Log "Checking if directory '$DirectoryName' exists (attempt $attempt/$script:MaxRetries)" -Level INFO
+            
+            try {
+                $existingDir = Get-AzStorageFile -ShareName $ShareName -Path $DirectoryName -Context $Context -ErrorAction Stop
+                if ($existingDir) {
+                    Write-Log "Directory '$DirectoryName' already exists, no need to recreate" -Level INFO
+                    return $true
+                }
+            } catch {
+                # Directory doesn't exist, which is expected - continue with creation
+                Write-Log "Directory '$DirectoryName' does not exist, will create it" -Level INFO
+            }
+            
+            # Create the directory
+            Write-Log "Creating directory: $DirectoryName (attempt $attempt/$script:MaxRetries)" -Level INFO
+            New-AzStorageDirectory -ShareName $ShareName -Path $DirectoryName -Context $Context -ErrorAction Stop | Out-Null
+            
+            $success = $true
+            $script:RecreatedCount++
+            Write-Log "Successfully created directory: $DirectoryName" -Level SUCCESS
+            return $true
+            
+        } catch {
+            $errorMessage = $_.Exception.Message
+            $errorType = $_.Exception.GetType().Name
+            
+            # Check if this is a transient error that should be retried
+            $isTransient = Test-IsTransientError -ErrorRecord $_
+            
+            if ($isTransient) {
+                $script:TransientErrorCount++
+            }
+            
+            if ($attempt -lt $script:MaxRetries) {
+                Write-Log "Failed to create directory $DirectoryName (attempt $attempt/$script:MaxRetries)" -Level WARNING
+                Write-Log "  Error Type: $errorType" -Level WARNING
+                Write-Log "  Error Message: $errorMessage" -Level WARNING
+                
+                # Use exponential backoff for transient errors
+                if ($isTransient) {
+                    Write-Log "Transient error detected. Retrying with exponential backoff..." -Level WARNING
+                    Write-Log "Waiting $currentDelay seconds before retry..." -Level WARNING
+                    Start-Sleep -Seconds $currentDelay
+                    # Double the delay for next attempt, up to max
+                    $currentDelay = [Math]::Min($currentDelay * 2, $script:MaxRetryDelaySeconds)
+                } else {
+                    Write-Log "Non-transient error detected. Retrying with standard delay..." -Level WARNING
+                    Write-Log "Waiting $script:RetryDelaySeconds seconds before retry..." -Level WARNING
+                    Start-Sleep -Seconds $script:RetryDelaySeconds
+                }
+            } else {
+                # Final failure after all retries
+                Write-Log "FAILED to create directory $DirectoryName after $script:MaxRetries attempts" -Level ERROR
+                Write-Log "  Final Error Type: $errorType" -Level ERROR
+                Write-Log "  Final Error Message: $errorMessage" -Level ERROR
+                Write-Log "  Share Name: $ShareName" -Level ERROR
+                
+                return $false
+            }
+        }
+    }
+    
+    return $false
+}
+
 # Function to delete an item with retry logic
 function Remove-ItemWithRetry {
     <#
@@ -322,6 +435,10 @@ function Remove-ItemWithRetry {
             if ($IsDirectory) {
                 Write-Log "Deleting directory: $ItemName (attempt $attempt/$script:MaxRetries)" -Level INFO
                 Remove-AzStorageDirectory -ShareName $ShareName -Path $Path -Context $Context -Force -ErrorAction Stop
+                
+                # Add extended delay after directory deletion to handle Azure API consistency delays
+                Write-Log "Directory deleted. Waiting $script:DirectoryConsistencyDelaySeconds seconds for Azure API consistency..." -Level INFO
+                Start-Sleep -Seconds $script:DirectoryConsistencyDelaySeconds
             } else {
                 Write-Log "Deleting file: $ItemName (attempt $attempt/$script:MaxRetries)" -Level INFO
                 Remove-AzStorageFile -ShareName $ShareName -Path $Path -Context $Context -ErrorAction Stop
@@ -329,7 +446,7 @@ function Remove-ItemWithRetry {
             
             $success = $true
             $script:DeletedCount++
-            Write-Log "Successfully deleted: $ItemName" -Level SUCCESS
+            Write-Log "Successfully deleted $ItemName ($(if ($IsDirectory) { 'directory' } else { 'file' }))" -Level SUCCESS
             return $true
             
         } catch {
@@ -338,7 +455,8 @@ function Remove-ItemWithRetry {
             
             # Check if this is a ResourceNotFound error
             if ($errorMessage -like "*ResourceNotFound*" -or $errorMessage -like "*404*" -or $errorMessage -like "*does not exist*") {
-                Write-Log "Item $ItemName not found during deletion (ResourceNotFound). Likely already deleted by another process or due to timing." -Level WARNING
+                $itemType = if ($IsDirectory) { "directory" } else { "file" }
+                Write-Log "$itemType '$ItemName' not found during deletion (ResourceNotFound). Likely already deleted by another process or due to timing." -Level WARNING
                 Write-Log "Error details: $errorMessage" -Level WARNING
                 # Consider this a success since the item no longer exists
                 $script:ResourceNotFoundCount++
@@ -602,6 +720,31 @@ try {
         Write-Log "Cleanup may have succeeded, but verification failed" -Level WARNING
     }
     
+    # Recreate necessary directories for app functionality
+    if ($DirectoriesToRecreate.Count -gt 0) {
+        Write-Host ""
+        Write-Log "Recreating required directories for app functionality..." -Level INFO
+        
+        foreach ($directoryName in $DirectoriesToRecreate) {
+            Write-Log "Recreating directory: $directoryName" -Level INFO
+            
+            $recreateSuccess = New-DirectoryWithRetry `
+                -ShareName $FileShareName `
+                -DirectoryName $directoryName `
+                -Context $context
+            
+            if ($recreateSuccess) {
+                Write-Log "Successfully recreated directory: $directoryName" -Level SUCCESS
+            } else {
+                Write-Log "FAILED to recreate directory: $directoryName" -Level ERROR
+                Write-Log "This may cause app functionality issues" -Level ERROR
+                $script:FailedCount++
+            }
+        }
+        
+        Write-Log "Directory recreation complete" -Level SUCCESS
+    }
+    
     # Calculate duration and display final statistics
     $duration = (Get-Date) - $script:StartTime
     
@@ -611,6 +754,7 @@ try {
     Write-Log "  Total items found: $script:TotalItems" -Level INFO
     Write-Log "  Items deleted: $script:DeletedCount" -Level SUCCESS
     Write-Log "  Protected items preserved: $script:ProtectedCount" -Level INFO
+    Write-Log "  Directories recreated: $script:RecreatedCount" -Level SUCCESS
     Write-Log "  Items failed: $script:FailedCount" -Level $(if ($script:FailedCount -gt 0) { 'ERROR' } else { 'INFO' })
     if ($script:ResourceNotFoundCount -gt 0) {
         Write-Log "  ResourceNotFound errors (handled): $script:ResourceNotFoundCount" -Level INFO
