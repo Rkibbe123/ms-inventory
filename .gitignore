@@ -201,6 +201,12 @@ $RECYCLE.BIN/
 *.iso
 *.tar
 
+# Core dump files
+core
+core.*
+*.core
+vgcore.*
+
 # Compiled source
 *.com
 *.class
