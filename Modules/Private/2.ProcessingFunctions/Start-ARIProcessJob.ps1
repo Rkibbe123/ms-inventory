@@ -12,11 +12,12 @@ https://github.com/microsoft/ARI/Modules/Private/2.ProcessingFunctions/Start-ARI
 This PowerShell Module is part of Azure Resource Inventory (ARI).
 
 .NOTES
-Version: 3.6.9 - v7.38
+Version: 3.6.9 - v7.41
 First Release Date: 15th Oct, 2024
 Authors: Claudio Merola
 
 .CHANGELOG
+v7.41 (2024-12-18): CRITICAL FIX - Handle empty resource sets (0 resources) by skipping XML export and initializing empty array
 v7.38 (2024-10-09): CRITICAL FIX - Jobs complete instantly and auto-remove, added -Keep -Wait to Receive-Job
 v7.37 (2024-10-09): FAILED - Write-Output used but jobs auto-cleanup before Receive-Job runs
 v7.36 (2024-10-09): FAILED - Hashtable created but implicit return captured Write-Host instead of hashtable
