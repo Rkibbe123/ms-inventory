@@ -37,7 +37,7 @@ function Invoke-ARIDrawIOJob {
             Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Starting Draw.IO Job.')
             Start-job -Name 'DrawDiagram' -ScriptBlock {
 
-                import-module $($args[8])
+                Import-Module $($args[8]) -ErrorAction Stop
 
                 $DiagramCache = $($args[4])
                 $TempPath = (get-item $DiagramCache).parent

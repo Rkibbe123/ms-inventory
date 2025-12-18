@@ -71,7 +71,7 @@ function Start-ARIDrawIODiagram {
         Start-Job -Name 'Diagram_Subscriptions' -ScriptBlock {
             try
                 {
-                    Import-Module $($args[4])
+                    Import-Module $($args[4]) -ErrorAction Stop
                     Start-ARIDiagramSubscription -Subscriptions $($args[0]) -Resources $($args[1]) -DiagramCache $($args[2]) -LogFile $($args[3])
                 }
             catch
@@ -141,7 +141,7 @@ function Start-ARIDrawIODiagram {
         Start-Job -Name 'Diagram_NetworkTopology' -ScriptBlock {
             try
             {
-                Import-Module $($args[9])
+                Import-Module $($args[9]) -ErrorAction Stop
                 Start-ARIDiagramNetwork -Subscriptions $($args[0]) -Job $($args[1]) -Advisories $($args[2]) -DiagramCache $($args[3]) -FullEnvironment $($args[4]) -DDFile $($args[5]) -XMLFiles $($args[6]) -LogFile $($args[7]) -Automation $($args[8]) -ARIModule $($args[9])
             }
             catch

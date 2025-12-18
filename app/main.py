@@ -335,9 +335,30 @@ def list_outputs():
     output_dir = get_output_dir()
     files = []
     try:
-        for name in sorted(os.listdir(output_dir)):
-            if name.lower().endswith((".xlsx", ".xml", ".log", ".txt", ".csv", ".json", ".html", ".pdf")):
-                files.append(name)
+        # Prefer the newest per-run subdirectory (yyyyMMdd_HHmmss) if present
+        run_roots = []
+        try:
+            candidates = [
+                name
+                for name in os.listdir(output_dir)
+                if os.path.isdir(os.path.join(output_dir, name))
+                and re.match(r"^\d{8}_\d{6}$", name)
+            ]
+            if candidates:
+                latest = sorted(candidates)[-1]
+                run_roots = [os.path.join(output_dir, latest)]
+            else:
+                run_roots = [output_dir]
+        except FileNotFoundError:
+            run_roots = [output_dir]
+
+        for root in run_roots:
+          for _, _, filenames in os.walk(root):
+            for fname in filenames:
+              # Only include Excel report files from the newest run directory
+              if fname.lower().endswith(".xlsx"):
+                rel_path = os.path.relpath(os.path.join(root, fname), output_dir)
+                files.append(rel_path)
     except FileNotFoundError:
         pass
 
@@ -345,8 +366,10 @@ def list_outputs():
     if files:
         items = ""
         for name in files:
+            display_name = os.path.basename(name)
+            link_path = name.replace(os.sep, "/")
             # Determine file type and icon
-            ext = name.lower().split('.')[-1] if '.' in name else ''
+            ext = display_name.lower().split('.')[-1] if '.' in display_name else ''
             if ext == 'xlsx':
                 icon = "📊"
                 type_label = "Excel Report"
@@ -369,20 +392,20 @@ def list_outputs():
                 icon = "🌐"
                 type_label = "HTML Report"
             elif ext == 'pdf':
-                icon = "📕"
-                type_label = "PDF Document"
+              icon = "📕"
+              type_label = "PDF Document"
             else:
-                icon = "📁"
-                type_label = "File"
-            
+              icon = "📁"
+              type_label = "File"
+
             items += f"""
             <div class="file-item">
-                <div class="file-icon">{icon}</div>
-                <div class="file-info">
-                    <div class="file-name">{name}</div>
-                    <div class="file-type">{type_label}</div>
-                </div>
-                <a href="/download/{name}" class="download-btn">📥 Download</a>
+              <div class="file-icon">{icon}</div>
+              <div class="file-info">
+                <div class="file-name">{display_name}</div>
+                <div class="file-type">{type_label}</div>
+              </div>
+              <a href="/download/{link_path}" class="download-btn">📥 Download</a>
             </div>"""
     else:
         items = """
@@ -595,11 +618,19 @@ def download_file(filename: str):
     from flask import send_from_directory, abort
 
     output_dir = get_output_dir()
-    safe_name = os.path.basename(filename)
-    file_path = os.path.join(output_dir, safe_name)
+    safe_path = os.path.normpath(filename)
+
+    # Prevent directory traversal outside the output directory
+    if safe_path.startswith("..") or os.path.isabs(safe_path):
+        return abort(400)
+
+    file_path = os.path.join(output_dir, safe_path)
     if not os.path.exists(file_path):
         return abort(404)
-    return send_from_directory(output_dir, safe_name, as_attachment=True)
+
+    directory = os.path.dirname(file_path) or output_dir
+    basename = os.path.basename(file_path)
+    return send_from_directory(directory, basename, as_attachment=True)
 
 
 def enhance_device_code_output(line):
@@ -1517,7 +1548,7 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
         "    export AZURE_STORAGE_KEY",
         "    export AZURE_FILE_SHARE",
         "    ",
-        "    # Run cleanup script with explicit variable passing",
+        "    # Run cleanup script with explicit variable passing (non-blocking)",
         "    if pwsh -NoProfile -ExecutionPolicy Bypass -File /app/powershell/clear-azure-fileshare.ps1 \\",
         "        -StorageAccountName \"$AZURE_STORAGE_ACCOUNT\" \\",
         "        -StorageAccountKey \"$AZURE_STORAGE_KEY\" \\",
@@ -1531,11 +1562,12 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
         "        CLEANUP_EXIT_CODE=$?",
         "        echo ''",
         "        echo '════════════════════════════════════════'",
-        "        echo '❌ CRITICAL: CLEANUP FAILED'",
+        "        echo '⚠️  CLEANUP FAILED (non-blocking)'",
         "        echo '════════════════════════════════════════'",
         "        echo \"Exit code: $CLEANUP_EXIT_CODE\"",
         "        echo ''",
-        "        echo '🚫 ARI EXECUTION BLOCKED'",
+        "        echo 'ARI execution will continue using per-run subfolders.'",
+        "        echo 'The file share may still contain old files.'",
         "        echo ''",
         "        echo 'Cleanup failed with:'",
         "        echo \"  Storage Account: $AZURE_STORAGE_ACCOUNT\"",
@@ -1554,9 +1586,7 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
         "        echo \"   az storage share show --name $AZURE_FILE_SHARE --account-name $AZURE_STORAGE_ACCOUNT\"",
         "        echo '   az storage file list --share-name ari-data --account-name ariinventorystorage --account-key <key>'",
         "        echo ''",
-        "        ",
-        "        # Exit immediately to block ARI execution",
-        "        exit 1",
+        "        # Do NOT exit; allow ARI to proceed even if cleanup failed",
         "    fi",
         "",
         "    # Disable strict error handling after cleanup",
@@ -1702,13 +1732,16 @@ def generate_cli_device_login_script(output_dir, tenant, subscription):
         ])
     
     # Add the ARI execution with better error handling
+    # Use a per-run subfolder under the base output directory for isolation
     script_parts.extend([
-        "",
-        f"$reportDir = '{output_dir}'",
-        "$reportName = 'AzureResourceInventory_' + (Get-Date -Format 'yyyyMMdd_HHmmss')",
-        "",
-        "Write-Host 'Creating output directory...' -ForegroundColor Yellow",
-        "New-Item -Path $reportDir -ItemType Directory -Force | Out-Null",
+      "",
+      f"$baseDir = '{output_dir}'",
+      "$runId = Get-Date -Format 'yyyyMMdd_HHmmss'",
+      "$reportDir = Join-Path $baseDir $runId",
+      "$reportName = 'AzureResourceInventory_' + $runId",
+      "",
+      "Write-Host 'Creating output directory...' -ForegroundColor Yellow",
+      "New-Item -Path $reportDir -ItemType Directory -Force | Out-Null",
         "",
         "Write-Host 'Starting Invoke-ARI execution...' -ForegroundColor Yellow",
         "Write-Host \"Report Directory: $reportDir\" -ForegroundColor Cyan",

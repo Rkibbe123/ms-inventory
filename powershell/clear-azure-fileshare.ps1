@@ -171,13 +171,16 @@ function Test-IsProtected {
         [string]$ItemName,
         [bool]$IsDirectory
     )
+
+    # Normalize name for case-insensitive comparisons
+    $normalizedName = $ItemName.ToLowerInvariant()
     
     # Protected folders - never delete these system directories
     $protectedFolders = @(
         '.jobs',                    # Job persistence directory
         '.snapshots',               # Azure Files snapshot directory
         '$logs',                    # Azure Storage logs directory
-        'System Volume Information' # Windows system folder
+        'system volume information' # Windows system folder
     )
     
     # Protected file patterns - never delete files matching these patterns
@@ -188,14 +191,14 @@ function Test-IsProtected {
     )
     
     # Check if it's a protected folder
-    if ($IsDirectory -and $protectedFolders -contains $ItemName) {
+    if ($IsDirectory -and $protectedFolders -contains $normalizedName) {
         return $true
     }
     
     # Check if it matches a protected file pattern
     if (-not $IsDirectory) {
         foreach ($pattern in $protectedPatterns) {
-            if ($ItemName -like $pattern) {
+            if ($normalizedName -like $pattern.ToLowerInvariant()) {
                 return $true
             }
         }
@@ -434,7 +437,7 @@ function Remove-ItemWithRetry {
             # Proceed with deletion
             if ($IsDirectory) {
                 Write-Log "Deleting directory: $ItemName (attempt $attempt/$script:MaxRetries)" -Level INFO
-                Remove-AzStorageDirectory -ShareName $ShareName -Path $Path -Context $Context -Force -ErrorAction Stop
+                Remove-AzStorageDirectory -ShareName $ShareName -Path $Path -Context $Context -ErrorAction Stop
                 
                 # Add extended delay after directory deletion to handle Azure API consistency delays
                 Write-Log "Directory deleted. Waiting $script:DirectoryConsistencyDelaySeconds seconds for Azure API consistency..." -Level INFO
@@ -452,9 +455,36 @@ function Remove-ItemWithRetry {
         } catch {
             $errorMessage = $_.Exception.Message
             $errorType = $_.Exception.GetType().Name
-            
+
             # Check if this is a ResourceNotFound error
             if ($errorMessage -like "*ResourceNotFound*" -or $errorMessage -like "*404*" -or $errorMessage -like "*does not exist*") {
+                # Special case: we thought this was a file but it may actually be a directory
+                if (-not $IsDirectory) {
+                    Write-Log "File '$ItemName' not found during deletion. Checking if a directory with the same name exists..." -Level WARNING
+                    try {
+                        Remove-AzStorageDirectory -ShareName $ShareName -Path $Path -Context $Context -ErrorAction Stop
+                        Write-Log "Directory '$ItemName' deleted after file deletion returned ResourceNotFound." -Level INFO
+                        Write-Log "Directory deleted. Waiting $script:DirectoryConsistencyDelaySeconds seconds for Azure API consistency..." -Level INFO
+                        Start-Sleep -Seconds $script:DirectoryConsistencyDelaySeconds
+                        $script:DeletedCount++
+                        $success = $true
+                        return $true
+                    } catch {
+                        $dirErrorMessage = $_.Exception.Message
+                        # If the directory also does not exist, treat as already deleted
+                        if ($dirErrorMessage -like "*ResourceNotFound*" -or $dirErrorMessage -like "*404*" -or $dirErrorMessage -like "*does not exist*") {
+                            Write-Log "Neither file nor directory '$ItemName' exists. Considering as already deleted." -Level INFO
+                            $script:ResourceNotFoundCount++
+                            $script:DeletedCount++
+                            $success = $true
+                            return $true
+                        }
+                        # For any other error, fall through to generic retry logic below using the new error details
+                        $errorMessage = $dirErrorMessage
+                        $errorType = $_.Exception.GetType().Name
+                    }
+                }
+
                 $itemType = if ($IsDirectory) { "directory" } else { "file" }
                 Write-Log "$itemType '$ItemName' not found during deletion (ResourceNotFound). Likely already deleted by another process or due to timing." -Level WARNING
                 Write-Log "Error details: $errorMessage" -Level WARNING

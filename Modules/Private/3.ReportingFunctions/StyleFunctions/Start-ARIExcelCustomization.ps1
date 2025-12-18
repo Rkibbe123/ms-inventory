@@ -33,9 +33,38 @@ function Start-ARIExcelCustomization {
     else
         {
             Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Running in Full Mode.')
-            $ARIMod = Get-InstalledModule -Name AzureResourceInventory
 
-            $ScriptVersion = [string]$ARIMod.Version
+            # In some environments (like containers using a locally-copied module),
+            # Get-InstalledModule will not find AzureResourceInventory even though
+            # it is available via PSModulePath. Fall back to Get-Module to avoid
+            # hard failures that block chart creation.
+            try {
+                $ARIMod = Get-InstalledModule -Name AzureResourceInventory -ErrorAction Stop
+                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Found AzureResourceInventory via Get-InstalledModule. Version: ' + $ARIMod.Version)
+            }
+            catch {
+                Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Get-InstalledModule AzureResourceInventory failed. Falling back to Get-Module -ListAvailable.')
+                $ARIMod = Get-Module -Name AzureResourceInventory -ListAvailable |
+                    Sort-Object Version -Descending |
+                    Select-Object -First 1
+                if ($ARIMod) {
+                    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Found AzureResourceInventory via Get-Module. Version: ' + $ARIMod.Version)
+                }
+                else {
+                    Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Unable to determine AzureResourceInventory version. Using fallback value.')
+                }
+            }
+
+            if ($ARIMod)
+                {
+                    $ScriptVersion = [string]$ARIMod.Version
+                }
+            else
+                {
+                    # Safe fallback so charts can still be created even if we
+                    # cannot resolve the module version from the environment.
+                    $ScriptVersion = "3.6.9"
+                }
         }
 
 

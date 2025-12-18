@@ -685,6 +685,57 @@ function Build-ARIExcelChart {
         }
         Add-PivotTable @PTParams
     }
+    else {
+        if ($IncludeCosts.IsPresent) {
+            $P7Name = 'Cost by Location'
+            $PTParams = @{
+                PivotTableName          = "P7"
+                Address                 = $excel.Overview.cells["CY5"] # top-left corner of the table
+                SourceWorkSheet         = $excel.'Subscriptions'
+                PivotRows               = @("Location")
+                PivotData               = @{"Cost" = "Sum" }
+                PivotTableStyle         = $tableStyle
+                IncludePivotChart       = $true
+                ChartType               = "Pie3D"
+                ChartRow                = 21 # place the chart below row 22nd
+                ChartColumn             = 24
+                Activate                = $true
+                NoLegend                = $true
+                ChartTitle              = 'Cost by Location'
+                PivotFilter             = 'Subscription'
+                ShowPercent             = $true
+                ChartHeight             = 255
+                ChartWidth              = 315
+                ChartRowOffSetPixels    = 5
+                ChartColumnOffSetPixels = 0
+            }
+        }
+        else {
+            $P7Name = 'Resources by Location'
+            $PTParams = @{
+                PivotTableName          = "P7"
+                Address                 = $excel.Overview.cells["CY5"] # top-left corner of the table
+                SourceWorkSheet         = $excel.'Subscriptions'
+                PivotRows               = @("Location")
+                PivotData               = @{"Resources Count" = "Sum" }
+                PivotTableStyle         = $tableStyle
+                IncludePivotChart       = $true
+                ChartType               = "Pie3D"
+                ChartRow                = 21 # place the chart below row 22nd
+                ChartColumn             = 24
+                Activate                = $true
+                NoLegend                = $true
+                ChartTitle              = 'Resources by Location'
+                PivotFilter             = 'Subscription'
+                ShowPercent             = $true
+                ChartHeight             = 255
+                ChartWidth              = 315
+                ChartRowOffSetPixels    = 5
+                ChartColumnOffSetPixels = 0
+            }
+        }
+        Add-PivotTable @PTParams
+    }
 
     $DrawP7 = $WS.Drawings | Where-Object { $_.Name -eq 'TP7' }
     $DrawP7.RichText.Add($P7Name) | Out-Null
@@ -811,6 +862,57 @@ function Build-ARIExcelChart {
             ChartWidth              = 315
             ChartRowOffSetPixels    = 5
             ChartColumnOffSetPixels = 0
+        }
+        Add-PivotTable @PTParams
+    }
+    else {
+        if ($IncludeCosts.IsPresent) {
+            $P9Name = 'Cost by Subscription'
+            $PTParams = @{
+                PivotTableName          = "P9"
+                Address                 = $excel.Overview.cells["BM5"] # top-left corner of the table
+                SourceWorkSheet         = $excel.'Subscriptions'
+                PivotRows               = @("Subscription")
+                PivotData               = @{"Cost" = "Sum" }
+                PivotTableStyle         = $tableStyle
+                IncludePivotChart       = $true
+                ChartType               = "Pie3D"
+                ChartRow                = 47
+                ChartColumn             = 24
+                Activate                = $true
+                NoLegend                = $true
+                ChartTitle              = 'Cost by Subscription'
+                PivotFilter             = 'Location'
+                ShowPercent             = $true
+                ChartHeight             = 255
+                ChartWidth              = 315
+                ChartRowOffSetPixels    = 5
+                ChartColumnOffSetPixels = 0
+            }
+        }
+        else {
+            $P9Name = 'Resources by Subscription'
+            $PTParams = @{
+                PivotTableName          = "P9"
+                Address                 = $excel.Overview.cells["BM5"] # top-left corner of the table
+                SourceWorkSheet         = $excel.'Subscriptions'
+                PivotRows               = @("Subscription")
+                PivotData               = @{"Resources Count" = "Sum" }
+                PivotTableStyle         = $tableStyle
+                IncludePivotChart       = $true
+                ChartType               = "Pie3D"
+                ChartRow                = 47
+                ChartColumn             = 24
+                Activate                = $true
+                NoLegend                = $true
+                ChartTitle              = 'Resources by Subscription'
+                PivotFilter             = 'Location'
+                ShowPercent             = $true
+                ChartHeight             = 255
+                ChartWidth              = 315
+                ChartRowOffSetPixels    = 5
+                ChartColumnOffSetPixels = 0
+            }
         }
         Add-PivotTable @PTParams
     }

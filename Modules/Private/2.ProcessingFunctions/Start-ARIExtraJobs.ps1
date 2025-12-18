@@ -37,8 +37,13 @@ function Start-ARIExtraJobs {
             $IncludeCosts,
             $CostData)
 
-    $ARIModule = 'AzureResourceInventory'
-    #$ARIModule = 'C:\usr\src\PSModules\AzureResourceInventory\AzureResourceInventory'
+    $ARIModule = Get-Module -Name AzureResourceInventory -ListAvailable | Select-Object -First 1
+
+    if (-not $ARIModule) {
+        throw 'AzureResourceInventory module not found in PSModulePath. Ensure the module is installed before running extra jobs.'
+    }
+
+    $ARIModule = $ARIModule.Path
 
     <######################################################### DRAW IO DIAGRAM JOB ######################################################################>
 
