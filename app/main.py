@@ -915,18 +915,18 @@ def cli_device_login():
           Visit the <a href="https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/Properties" target="_blank">Azure Portal</a> to find your Tenant ID, or use <a href="https://portal.azure.com/#view/Microsoft_Azure_Billing/SubscriptionsBlade" target="_blank">Subscriptions</a> to find your Subscription ID.
         </div>
         
-        <form method="POST" id="auth-form">
+        <form method="POST" id="auth-form" autocomplete="off">
           <div class="form-group">
             <label for="tenant">Tenant ID<span style="color: #dc2626;">*</span> (required):</label>
             <span class="field-help">Your Azure Active Directory tenant ID (GUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)</span>
-            <input type="text" name="tenant" id="tenant" value="TENANT_VALUE" placeholder="00000000-0000-0000-0000-000000000000" required pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}">
+            <input type="text" name="tenant" id="tenant" value="TENANT_VALUE" placeholder="00000000-0000-0000-0000-000000000000" autocomplete="off" required pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}">
             <div id="tenant-validation" class="validation-message"></div>
           </div>
           
           <div class="form-group">
             <label for="subscription">Subscription ID (optional):</label>
             <span class="field-help">Leave empty to use your default subscription, or enter a specific Subscription ID (GUID format)</span>
-            <input type="text" name="subscription" id="subscription" value="SUBSCRIPTION_VALUE" placeholder="00000000-0000-0000-0000-000000000000 (optional)">
+            <input type="text" name="subscription" id="subscription" value="SUBSCRIPTION_VALUE" placeholder="00000000-0000-0000-0000-000000000000 (optional)" autocomplete="off">
             <div id="subscription-validation" class="validation-message"></div>
           </div>
           
